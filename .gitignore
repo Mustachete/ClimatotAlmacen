@@ -1,0 +1,47 @@
+@'
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build / dist
+build/
+dist/
+*.egg-info/
+
+# IDEs / editors
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / coverage
+*.log
+.coverage
+htmlcov/
+coverage.xml
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Data temp
+*.sqlite3
+*.db
+*.db-journal
+/tmp/
+temp/
+
+# Secrets
+.env
+*.key
+*.pem
+secrets.json
+'@ | Out-File -Encoding utf8 .gitignore
