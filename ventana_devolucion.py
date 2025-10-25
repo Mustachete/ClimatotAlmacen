@@ -10,13 +10,7 @@ import sqlite3
 import datetime
 from estilos import ESTILO_VENTANA
 from widgets_personalizados import SpinBoxClimatot
-
-BASE = Path(__file__).resolve().parent
-DB_PATH = BASE / "db" / "almacen.db"
-
-def get_con():
-    """Devuelve conexión a la base de datos"""
-    return sqlite3.connect(DB_PATH)
+from db_utils import get_con
 
 # ========================================
 # VENTANA DE DEVOLUCIÓN A PROVEEDOR

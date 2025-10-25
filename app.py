@@ -21,24 +21,11 @@ from ventana_articulos import VentanaArticulos
 from ventana_stock import VentanaStock
 from ventana_material_perdido import VentanaMaterialPerdido
 from ventana_devolucion import VentanaDevolucion
+from ventana_inventario import VentanaInventario
+from ventana_historico import VentanaHistorico
 from estilos import ESTILO_LOGIN, ESTILO_VENTANA
+from db_utils import get_con, hash_pwd, DB_PATH
 
-# ========================================
-# CONFIGURACIÓN Y RUTAS
-# ========================================
-BASE = Path(__file__).resolve().parent
-DB_PATH = BASE / "db" / "almacen.db"
-
-# ========================================
-# FUNCIONES AUXILIARES
-# ========================================
-def hash_pwd(p: str) -> str:
-    """Genera hash SHA256 de la contraseña"""
-    return hashlib.sha256(p.encode("utf-8")).hexdigest()
-
-def get_con():
-    """Devuelve conexión a la base de datos"""
-    return sqlite3.connect(DB_PATH)
 
 # ========================================
 # VENTANA DE LOGIN
@@ -170,8 +157,8 @@ class MainMenuWindow(QWidget):
             ("📝 Imputar Material", self.abrir_imputacion, True),
             ("↩️ Devolución a Proveedor", self.abrir_devolucion, True),
             ("⚠️ Material Perdido", self.abrir_material_perdido, rol == "admin"),
-            ("📊 Inventario Físico", self.no_func, True),
-            ("ℹ️ Info e Informes", self.abrir_info, True),
+            ("📊 Inventario Físico", self.abrir_inventario, True),
+            ("ℹ️ Info e Informes", self.abrir_info_menu, True),
             ("⚙️ Maestros", self.abrir_maestros, True),
             ("🔧 Configuración", self.no_func, rol == "admin"),
             ("🔄 Cambiar Usuario", self.logout, True),
@@ -239,10 +226,10 @@ class MainMenuWindow(QWidget):
         self.ventana_imput = VentanaImputacion()
         self.ventana_imput.show()
     
-    def abrir_info(self):
-        """Abrir ventana de info/stock"""
-        self.ventana_stock = VentanaStock()
-        self.ventana_stock.show()
+    def abrir_info_menu(self):
+        """Abrir submenu de informes"""
+        self.menu_info = MenuInformes()
+        self.menu_info.show()
     
     def abrir_material_perdido(self):
         """Abrir ventana de material perdido"""
@@ -254,9 +241,74 @@ class MainMenuWindow(QWidget):
         self.ventana_devol = VentanaDevolucion()
         self.ventana_devol.show()
     
+    def abrir_inventario(self):
+        """Abrir ventana de inventario físico"""
+        self.ventana_inv = VentanaInventario()
+        self.ventana_inv.show()
+    
     def no_func(self):
         QMessageBox.information(self, "ℹ️ Aviso", "Esta función aún no está implementada.\n\nEn desarrollo...")
-
+    
+# ========================================
+# VENTANA DE SUBMENÚ INFORMES
+# ========================================
+class MenuInformes(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("ℹ️ Información e Informes")
+        self.setFixedSize(600, 400)
+        self.setStyleSheet(ESTILO_VENTANA)
+        
+        layout = QVBoxLayout(self)
+        
+        # Título
+        titulo = QLabel("ℹ️ Información e Informes")
+        titulo.setAlignment(Qt.AlignCenter)
+        titulo.setStyleSheet("font-size: 16px; font-weight: bold; margin: 15px;")
+        layout.addWidget(titulo)
+        
+        # Botones
+        botones = [
+            ("📊 Consulta de Stock", self.abrir_stock),
+            ("📋 Histórico de Movimientos", self.abrir_historico),
+            ("📦 Ficha Completa de Artículo", self.abrir_ficha),
+            ("📈 Consumos por OT", self.no_func),
+            ("👷 Consumos por Operario", self.no_func),
+            ("📅 Análisis por Período", self.no_func),
+        ]
+        
+        for texto, func in botones:
+            btn = QPushButton(texto)
+            btn.setMinimumHeight(50)
+            btn.setStyleSheet("font-size: 13px; text-align: left; padding: 10px;")
+            btn.clicked.connect(func)
+            layout.addWidget(btn)
+        
+        # Botón volver
+        layout.addStretch()
+        btn_volver = QPushButton("⬅️ Volver")
+        btn_volver.setMinimumHeight(40)
+        btn_volver.clicked.connect(self.close)
+        layout.addWidget(btn_volver)
+    
+    def abrir_stock(self):
+        from ventana_stock import VentanaStock
+        self.ventana_stock = VentanaStock()
+        self.ventana_stock.show()
+    
+    def abrir_historico(self):
+        from ventana_historico import VentanaHistorico
+        self.ventana_hist = VentanaHistorico()
+        self.ventana_hist.show()
+    
+    def abrir_ficha(self):
+        from ventana_ficha_articulo import VentanaFichaArticulo
+        self.ventana_ficha = VentanaFichaArticulo()
+        self.ventana_ficha.show()
+    
+    def no_func(self):
+        QMessageBox.information(self, "ℹ️ Aviso", "Esta función aún no está implementada.\n\nEn desarrollo...")
+    
 # ========================================
 # VENTANA DE MAESTROS
 # ========================================
@@ -321,7 +373,7 @@ class MaestrosWindow(QWidget):
     
     def no_func(self):
         QMessageBox.information(self, "ℹ️ Aviso", "Esta función aún no está implementada.\n\nEn desarrollo...")
-
+    
 # ========================================
 # MAIN - INICIAR APLICACIÓN
 # ========================================

@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS movimientos(
   motivo      TEXT,
   ot          TEXT,
   operario_id INTEGER,
+  responsable TEXT,
   albaran     TEXT,
   FOREIGN KEY(origen_id)   REFERENCES almacenes(id),
   FOREIGN KEY(destino_id)  REFERENCES almacenes(id),
@@ -158,3 +159,34 @@ CREATE INDEX IF NOT EXISTS idx_articulos_nombre ON articulos(nombre);
 CREATE INDEX IF NOT EXISTS idx_articulos_ean ON articulos(ean);
 CREATE INDEX IF NOT EXISTS idx_articulos_ref ON articulos(ref_proveedor);
 CREATE INDEX IF NOT EXISTS idx_articulos_palabras ON articulos(palabras_clave);
+
+-- ========================================
+-- INVENTARIOS FÍSICOS
+-- ========================================
+CREATE TABLE IF NOT EXISTS inventarios(
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  fecha        TEXT NOT NULL,
+  responsable  TEXT NOT NULL,
+  almacen_id   INTEGER,
+  observaciones TEXT,
+  estado       TEXT NOT NULL DEFAULT 'EN_PROCESO' CHECK(estado IN ('EN_PROCESO','FINALIZADO')),
+  fecha_cierre TEXT,
+  FOREIGN KEY(almacen_id) REFERENCES almacenes(id)
+);
+
+CREATE TABLE IF NOT EXISTS inventario_detalle(
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  inventario_id   INTEGER NOT NULL,
+  articulo_id     INTEGER NOT NULL,
+  stock_teorico   REAL NOT NULL DEFAULT 0,
+  stock_contado   REAL NOT NULL DEFAULT 0,
+  diferencia      REAL NOT NULL DEFAULT 0,
+  FOREIGN KEY(inventario_id) REFERENCES inventarios(id) ON DELETE CASCADE,
+  FOREIGN KEY(articulo_id) REFERENCES articulos(id)
+);
+
+-- Índices para inventarios
+CREATE INDEX IF NOT EXISTS idx_inventarios_fecha ON inventarios(fecha);
+CREATE INDEX IF NOT EXISTS idx_inventarios_almacen ON inventarios(almacen_id);
+CREATE INDEX IF NOT EXISTS idx_inventario_detalle_inv ON inventario_detalle(inventario_id);
+CREATE INDEX IF NOT EXISTS idx_inventario_detalle_art ON inventario_detalle(articulo_id);

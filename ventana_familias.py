@@ -8,13 +8,7 @@ from PySide6.QtCore import Qt
 from pathlib import Path
 import sqlite3
 from estilos import ESTILO_DIALOGO, ESTILO_VENTANA
-
-BASE = Path(__file__).resolve().parent
-DB_PATH = BASE / "db" / "almacen.db"
-
-def get_con():
-    """Devuelve conexión a la base de datos"""
-    return sqlite3.connect(DB_PATH)
+from db_utils import get_con
 
 # ========================================
 # DIÁLOGO PARA AÑADIR/EDITAR FAMILIA
