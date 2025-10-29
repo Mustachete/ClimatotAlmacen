@@ -1,0 +1,296 @@
+================================================================================
+    CLIMATOT ALMACÉN - ÍNDICE DE ARCHIVOS Y RESUMEN DE FUNCIONES
+================================================================================
+
+📁 DIRECTORIO RAÍZ: ClimatotAlmacen/
+================================================================================
+
+ARCHIVOS PRINCIPALES:
+--------------------
+✓ app.py                          (406 líneas) - Aplicación principal
+✓ init_db.py                      (188 líneas) - Inicialización BD
+✓ db_utils.py                     (257 líneas) - Utilidades BD
+✓ estilos.py                      (233 líneas) - Estilos visuales
+✓ idle_manager.py                 (200 líneas) - Gestor inactividad
+✓ buscador_articulos.py           (640 líneas) - Búsqueda artículos
+✓ widgets_personalizados.py       (290 líneas) - Widgets custom
+✓ ui_common.py                    (48 líneas)  - Componentes UI comunes
+✓ config_utils.py                 (152 líneas) - Configuración
+✓ actualizar_bd_inventario.py     (85 líneas)  - Script BD inventarios
+
+VENTANAS OPERATIVAS:
+-------------------
+✓ ventana_recepcion.py            (580 líneas) - Recepción material
+✓ ventana_movimientos.py          (560 líneas) - Movimientos stock
+✓ ventana_imputacion.py           (500 líneas) - Imputación a OT
+✓ ventana_devolucion.py           (445 líneas) - Devoluciones
+✓ ventana_material_perdido.py     (420 líneas) - Material perdido
+✓ ventana_inventario.py           (1050 líneas) - Inventarios físicos
+
+VENTANAS DE CONSULTA:
+--------------------
+✓ ventana_stock.py                (410 líneas) - Consulta de stock
+✓ ventana_historico.py            (475 líneas) - Histórico movimientos
+✓ ventana_ficha_articulo.py       (785 líneas) - Ficha artículo
+
+VENTANAS MAESTROS:
+-----------------
+✓ ventana_articulos.py            (720 líneas) - CRUD artículos
+✓ ventana_proveedores.py          (380 líneas) - CRUD proveedores
+✓ ventana_operarios.py            (420 líneas) - CRUD operarios
+✓ ventana_familias.py             (330 líneas) - CRUD familias
+✓ ventana_ubicaciones.py          (340 líneas) - CRUD ubicaciones
+
+BASE DE DATOS:
+-------------
+✓ db/almacen.db                   (160 KB)    - Base datos SQLite
+✓ db/schema.sql                   (193 líneas) - Esquema BD
+
+CONFIGURACIÓN:
+-------------
+✓ config/app.ini                  (3 líneas)   - Config aplicación
+✓ requirements.txt                (16 líneas)  - Dependencias Python
+
+================================================================================
+    FUNCIONES PRINCIPALES POR ARCHIVO
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 app.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLASES:
+  • LoginWindow              - Ventana de inicio de sesión
+  • MainMenuWindow           - Menú principal de la aplicación
+  • MenuInformes             - Submenú de informes y consultas
+  • MaestrosWindow           - Submenú de gestión de maestros
+
+FUNCIONES:
+  • main()                   - Punto de entrada de la aplicación
+  • login()                  - Procesa el login del usuario
+  • logout()                 - Cierra sesión manualmente
+  • abrir_recepcion()        - Abre ventana de recepción
+  • abrir_movimientos()      - Abre ventana de movimientos
+  • abrir_imputacion()       - Abre ventana de imputación
+  • abrir_maestros()         - Abre ventana de maestros
+  • abrir_info_menu()        - Abre submenú de informes
+  
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 db_utils.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FUNCIONES:
+  • get_con()                - Obtiene conexión SQLite
+  • log_err(msg)             - Registra errores en log
+  • hash_pwd(password)       - Genera hash SHA256 de contraseña
+  • today_str()              - Fecha actual en formato YYYY-MM-DD
+  • parse_date(fecha_str)    - Valida fecha
+  • timestamp_str()          - Timestamp para archivos
+  • validar_stock_disponible() - Verifica stock suficiente
+  • obtener_stock_articulo() - Calcula stock actual
+  • buscar_articulo_por_ean() - Búsqueda por código de barras
+  • obtener_nombre_almacen() - Nombre de almacén por ID
+  • obtener_nombre_articulo() - Nombre de artículo por ID
+  • verificar_bd()           - Verifica BD existe y funciona
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 idle_manager.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLASE:
+  • IdleManager (Singleton)  - Gestor de inactividad del usuario
+
+MÉTODOS:
+  • start()                  - Inicia monitoreo de inactividad
+  • stop()                   - Detiene monitoreo
+  • reset_timer()            - Reinicia contador de inactividad
+  • check_inactivity()       - Verifica tiempo inactivo
+  • logout_user()            - Cierra sesión automáticamente
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 buscador_articulos.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLASE:
+  • BuscadorArticulos        - Diálogo de búsqueda avanzada
+
+MÉTODOS:
+  • setupUI()                - Configura interfaz
+  • buscar()                 - Ejecuta búsqueda con filtros
+  • seleccionar_articulo()   - Selecciona artículo de tabla
+  • cargar_familias()        - Carga combos de familias
+  • cargar_proveedores()     - Carga combos de proveedores
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 ventana_recepcion.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLASE:
+  • VentanaRecepcion         - Recepción de material de proveedores
+
+MÉTODOS PRINCIPALES:
+  • setupUI()                - Configura interfaz
+  • cargar_combos()          - Carga proveedores y almacenes
+  • buscar_articulo_ean()    - Búsqueda por código de barras
+  • buscar_articulo_avanzado() - Abre buscador avanzado
+  • agregar_articulo()       - Añade artículo a la tabla
+  • eliminar_articulo()      - Elimina artículo de la tabla
+  • guardar_recepcion()      - Guarda recepción completa en BD
+  • validar_datos()          - Valida datos antes de guardar
+  • limpiar_formulario()     - Limpia campos del formulario
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 ventana_movimientos.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLASE:
+  • VentanaMovimientos       - Traspasos entre almacenes
+
+MÉTODOS PRINCIPALES:
+  • setupUI()                - Configura interfaz
+  • cargar_almacenes()       - Carga combos de almacenes
+  • buscar_articulo()        - Búsqueda de artículo
+  • verificar_stock()        - Verifica stock en origen
+  • agregar_linea()          - Añade línea a la tabla
+  • guardar_movimiento()     - Guarda traspaso en BD
+  • validar_datos()          - Valida datos antes de guardar
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 ventana_imputacion.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLASE:
+  • VentanaImputacion        - Imputación de material a OT
+
+MÉTODOS PRINCIPALES:
+  • setupUI()                - Configura interfaz
+  • cargar_combos()          - Carga operarios y almacenes
+  • buscar_articulo()        - Búsqueda de artículo
+  • verificar_stock()        - Verifica stock disponible
+  • agregar_linea()          - Añade línea a la tabla
+  • guardar_imputacion()     - Guarda imputación en BD
+  • validar_ot()             - Valida número de OT
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 ventana_inventario.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLASE:
+  • VentanaInventario        - Gestión de inventarios físicos
+
+MÉTODOS PRINCIPALES:
+  • setupUI()                - Configura interfaz
+  • nuevo_inventario()       - Crea nuevo inventario
+  • cargar_articulos()       - Carga artículos del almacén
+  • calcular_stock_teorico() - Calcula stock según sistema
+  • guardar_conteo()         - Guarda stock contado
+  • calcular_diferencias()   - Calcula diferencias (contado-teórico)
+  • finalizar_inventario()   - Finaliza y genera ajustes
+  • generar_movimientos_ajuste() - Crea movimientos de ajuste
+  • exportar_excel()         - Exporta inventario a Excel
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 ventana_stock.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLASE:
+  • VentanaStock             - Consulta de stock actual
+
+MÉTODOS PRINCIPALES:
+  • setupUI()                - Configura interfaz
+  • cargar_combos()          - Carga filtros
+  • consultar_stock()        - Consulta stock con filtros
+  • aplicar_filtros()        - Aplica filtros a la consulta
+  • exportar_excel()         - Exporta resultados a Excel
+  • resaltar_stock_bajo()    - Resalta artículos con stock bajo
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 ventana_historico.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLASE:
+  • VentanaHistorico         - Histórico de movimientos
+
+MÉTODOS PRINCIPALES:
+  • setupUI()                - Configura interfaz
+  • cargar_filtros()         - Carga combos de filtros
+  • consultar_historico()    - Consulta con filtros
+  • aplicar_filtros()        - Aplica filtros múltiples
+  • ver_detalle()            - Muestra detalle de movimiento
+  • exportar_excel()         - Exporta a Excel
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 ventana_articulos.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLASE:
+  • VentanaArticulos         - CRUD de artículos
+
+MÉTODOS PRINCIPALES:
+  • setupUI()                - Configura interfaz
+  • cargar_combos()          - Carga familias, proveedores, etc
+  • cargar_tabla()           - Carga artículos en tabla
+  • nuevo_articulo()         - Prepara formulario para nuevo
+  • guardar_articulo()       - Guarda artículo (nuevo/editar)
+  • editar_articulo()        - Carga artículo para editar
+  • eliminar_articulo()      - Marca como inactivo
+  • buscar_articulos()       - Búsqueda con filtros
+  • validar_datos()          - Valida campos antes de guardar
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+================================================================================
+    TABLAS DE LA BASE DE DATOS
+================================================================================
+
+USUARIOS Y SESIONES:
+  • usuarios               - Usuarios del sistema
+  • sesiones               - Sesiones activas
+
+MAESTROS:
+  • proveedores            - Proveedores de material
+  • operarios              - Operarios/técnicos
+  • familias               - Familias de artículos
+  • ubicaciones            - Ubicaciones en almacén
+  • almacenes              - Almacenes y furgonetas
+
+ARTÍCULOS:
+  • articulos              - Maestro de artículos (⭐ tabla central)
+
+MOVIMIENTOS:
+  • movimientos            - Movimientos de stock (⭐ tabla central)
+  • albaranes              - Albaranes de proveedores
+
+INVENTARIOS:
+  • inventarios            - Cabecera de inventarios físicos
+  • inventario_detalle     - Detalle de inventarios
+
+ASIGNACIONES:
+  • asignaciones_furgoneta - Asignación furgoneta-operario
+
+VISTAS:
+  • vw_stock               - Stock por almacén y artículo
+  • vw_stock_total         - Stock total por artículo
+
+================================================================================
+    TIPOS DE MOVIMIENTO
+================================================================================
+
+  ENTRADA      → Recepción de proveedor (destino_id obligatorio)
+  TRASPASO     → Movimiento entre almacenes (origen_id y destino_id)
+  IMPUTACION   → Consumo en obra/OT (origen_id y ot obligatorios)
+  PERDIDA      → Material perdido/dañado (origen_id obligatorio)
+  DEVOLUCION   → Devolución a proveedor (origen_id obligatorio)
+
+================================================================================
+    DEPENDENCIAS (requirements.txt)
+================================================================================
+
+  • PySide6               6.10.0    - Framework Qt para Python
+  • pandas                2.3.3     - Análisis de datos
+  • openpyxl              3.1.5     - Exportación a Excel
+  • QtAwesome             1.4.0     - Iconos para Qt
+  • numpy                 2.3.4     - Operaciones numéricas
+  • python-dateutil       2.9.0     - Manejo de fechas
+
+================================================================================
+    ESTADÍSTICAS DEL PROYECTO
+================================================================================
+
+  Total archivos Python:      24
+  Total líneas de código:     ~8,500
+  Ventanas del sistema:       18
+  Tablas en BD:               13
+  Vistas en BD:               2
+  Índices en BD:              12
+
+================================================================================

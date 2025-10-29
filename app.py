@@ -1,31 +1,35 @@
 # app.py - Programa Principal - Sistema Climatot Almacén
 import sys
-import hashlib
-import sqlite3
 import time
 import socket
-from pathlib import Path
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QMessageBox, QGridLayout
 )
-from PySide6.QtCore import Qt, QTimer
-from ventana_recepcion import VentanaRecepcion
-from ventana_movimientos import VentanaMovimientos
-from ventana_imputacion import VentanaImputacion
-from ventana_proveedores import VentanaProveedores
-from ventana_familias import VentanaFamilias
-from ventana_ubicaciones import VentanaUbicaciones
-from ventana_operarios import VentanaOperarios
-from ventana_articulos import VentanaArticulos
-from ventana_stock import VentanaStock
-from ventana_material_perdido import VentanaMaterialPerdido
-from ventana_devolucion import VentanaDevolucion
-from ventana_inventario import VentanaInventario
-from ventana_historico import VentanaHistorico
-from estilos import ESTILO_LOGIN, ESTILO_VENTANA
-from db_utils import get_con, hash_pwd, DB_PATH
+from PySide6.QtCore import Qt
+from src.ventanas.operativas.ventana_recepcion import VentanaRecepcion
+from src.ventanas.operativas.ventana_movimientos import VentanaMovimientos
+from src.ventanas.operativas.ventana_imputacion import VentanaImputacion
+from src.ventanas.maestros.ventana_proveedores import VentanaProveedores
+from src.ventanas.maestros.ventana_familias import VentanaFamilias
+from src.ventanas.maestros.ventana_ubicaciones import VentanaUbicaciones
+from src.ventanas.maestros.ventana_operarios import VentanaOperarios
+from src.ventanas.maestros.ventana_articulos import VentanaArticulos
+from src.ventanas.maestros.ventana_furgonetas import VentanaFurgonetas  # ← NUEVO: Gestión de Furgonetas/Almacenes
+from src.ventanas.consultas.ventana_stock import VentanaStock
+from src.ventanas.consultas.ventana_consumos import VentanaConsumos
+from src.ventanas.consultas.ventana_pedido_ideal import VentanaPedidoIdeal
+from src.ventanas.operativas.ventana_material_perdido import VentanaMaterialPerdido
+from src.ventanas.operativas.ventana_devolucion import VentanaDevolucion
+from src.ventanas.operativas.ventana_inventario import VentanaInventario
+from src.ventanas.consultas.ventana_historico import VentanaHistorico
+from src.ui.estilos import ESTILO_LOGIN, ESTILO_VENTANA
+from src.core.idle_manager import get_idle_manager
 
+# ========================================
+# IMPORTAR FUNCIONES CENTRALIZADAS
+# ========================================
+from src.core.db_utils import get_con, hash_pwd, DB_PATH
 
 # ========================================
 # VENTANA DE LOGIN
@@ -120,8 +124,12 @@ class LoginWindow(QWidget):
             
             # Abrir menú principal
             self.hide()
-            self.main = MainMenuWindow(usuario=u, rol=row[1])
+            self.main = MainMenuWindow(usuario=u, rol=row[1], login_window=self)
             self.main.show()
+            
+            # Iniciar el gestor de inactividad
+            idle_manager = get_idle_manager()
+            idle_manager.start(login_window=self, main_window=self.main)
             
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al conectar con la base de datos:\n{e}")
@@ -130,10 +138,11 @@ class LoginWindow(QWidget):
 # VENTANA MENÚ PRINCIPAL
 # ========================================
 class MainMenuWindow(QWidget):
-    def __init__(self, usuario, rol):
+    def __init__(self, usuario, rol, login_window):
         super().__init__()
         self.usuario = usuario
         self.rol = rol
+        self.login_window = login_window
         self.setWindowTitle(f"📋 Menú Principal - {usuario} ({rol})")
         self.setFixedSize(700, 550)
         self.setStyleSheet(ESTILO_VENTANA)
@@ -182,29 +191,29 @@ class MainMenuWindow(QWidget):
         
         layout.addLayout(grid)
         
-        # Timer de inactividad (20 minutos)
-        self.idle_timer = QTimer(self)
-        self.idle_timer.timeout.connect(self.check_idle)
-        self.idle_timer.start(1000)
-        self.last_activity = time.time()
-    
-    def mousePressEvent(self, event):
-        self.last_activity = time.time()
-        super().mousePressEvent(event)
-    
-    def keyPressEvent(self, event):
-        self.last_activity = time.time()
-        super().keyPressEvent(event)
-    
-    def check_idle(self):
-        if time.time() - self.last_activity > 1200:
-            QMessageBox.warning(self, "⏱️ Inactividad", "Sesión cerrada por inactividad.")
-            self.logout()
+        # NOTA: El timer de inactividad ahora se gestiona globalmente
+        # No hace falta código aquí, el idle_manager se encarga de todo
     
     def logout(self):
+        """Cierra sesión manualmente"""
+        # Detener el gestor de inactividad
+        idle_manager = get_idle_manager()
+        idle_manager.stop()
+        
+        # Cerrar esta ventana
         self.close()
-        self.login = LoginWindow()
-        self.login.show()
+        
+        # Mostrar el login
+        self.login_window.show()
+        self.login_window.user.clear()
+        self.login_window.passw.clear()
+        self.login_window.user.setFocus()
+    
+    def closeEvent(self, event):
+        """Cuando se cierra el menú principal, detener el idle manager"""
+        idle_manager = get_idle_manager()
+        idle_manager.stop()
+        event.accept()
     
     def abrir_recepcion(self):
         """Abrir ventana de recepción"""
@@ -256,10 +265,12 @@ class MenuInformes(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("ℹ️ Información e Informes")
-        self.setFixedSize(600, 400)
+        self.setFixedSize(600, 480)  # ← Aumentado de 400 a 480
         self.setStyleSheet(ESTILO_VENTANA)
         
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)  # ← Aumentado de 10 a 12
+        layout.setContentsMargins(20, 20, 20, 20)
         
         # Título
         titulo = QLabel("ℹ️ Información e Informes")
@@ -267,19 +278,18 @@ class MenuInformes(QWidget):
         titulo.setStyleSheet("font-size: 16px; font-weight: bold; margin: 15px;")
         layout.addWidget(titulo)
         
-        # Botones
+        # Botones con más espaciado
         botones = [
             ("📊 Consulta de Stock", self.abrir_stock),
             ("📋 Histórico de Movimientos", self.abrir_historico),
             ("📦 Ficha Completa de Artículo", self.abrir_ficha),
-            ("📈 Consumos por OT", self.no_func),
-            ("👷 Consumos por Operario", self.no_func),
-            ("📅 Análisis por Período", self.no_func),
+            ("📈 Análisis de Consumos", self.abrir_consumos),  # ← NUEVA: Consolidada con tabs
+            ("🛒 Pedido Ideal Sugerido", self.abrir_pedido_ideal),  # ← NUEVA: Cálculo de pedidos
         ]
         
         for texto, func in botones:
             btn = QPushButton(texto)
-            btn.setMinimumHeight(50)
+            btn.setMinimumHeight(55)  # ← Aumentado de 50 a 55
             btn.setStyleSheet("font-size: 13px; text-align: left; padding: 10px;")
             btn.clicked.connect(func)
             layout.addWidget(btn)
@@ -292,19 +302,29 @@ class MenuInformes(QWidget):
         layout.addWidget(btn_volver)
     
     def abrir_stock(self):
-        from ventana_stock import VentanaStock
+        from src.ventanas.consultas.ventana_stock import VentanaStock
         self.ventana_stock = VentanaStock()
         self.ventana_stock.show()
     
     def abrir_historico(self):
-        from ventana_historico import VentanaHistorico
+        from src.ventanas.consultas.ventana_historico import VentanaHistorico
         self.ventana_hist = VentanaHistorico()
         self.ventana_hist.show()
     
     def abrir_ficha(self):
-        from ventana_ficha_articulo import VentanaFichaArticulo
+        from src.ventanas.consultas.ventana_ficha_articulo import VentanaFichaArticulo
         self.ventana_ficha = VentanaFichaArticulo()
         self.ventana_ficha.show()
+    
+    def abrir_consumos(self):
+        """Abrir ventana consolidada de análisis de consumos"""
+        self.ventana_consumos = VentanaConsumos()
+        self.ventana_consumos.show()
+    
+    def abrir_pedido_ideal(self):
+        """Abrir ventana de cálculo de pedido ideal"""
+        self.ventana_pedido_ideal = VentanaPedidoIdeal()
+        self.ventana_pedido_ideal.show()
     
     def no_func(self):
         QMessageBox.information(self, "ℹ️ Aviso", "Esta función aún no está implementada.\n\nEn desarrollo...")
@@ -334,7 +354,7 @@ class MaestrosWindow(QWidget):
             ("👷 Operarios", self.abrir_operarios),
             ("📂 Familias", self.abrir_familias),
             ("📍 Ubicaciones", self.abrir_ubicaciones),
-            ("🏢 Almacenes/Furgonetas", self.no_func),
+            ("🏢 Almacenes/Furgonetas", self.abrir_furgonetas),  # ← ACTUALIZADO
         ]
         
         for texto, func in botones:
@@ -370,6 +390,11 @@ class MaestrosWindow(QWidget):
     def abrir_articulos(self):
         self.ventana_art = VentanaArticulos()
         self.ventana_art.show()
+    
+    def abrir_furgonetas(self):
+        """Abrir ventana de gestión de furgonetas/almacenes"""
+        self.ventana_furg = VentanaFurgonetas()
+        self.ventana_furg.show()
     
     def no_func(self):
         QMessageBox.information(self, "ℹ️ Aviso", "Esta función aún no está implementada.\n\nEn desarrollo...")
