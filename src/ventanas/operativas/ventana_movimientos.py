@@ -12,6 +12,8 @@ import datetime
 from src.ui.estilos import ESTILO_VENTANA
 from src.ui.widgets_personalizados import SpinBoxClimatot
 from src.core.db_utils import get_con
+from src.core.logger import logger, log_operacion
+from src.core.error_handler import handle_db_errors, validate_field, show_warning, show_info
 
 # ========================================
 # VENTANA DE HACER MOVIMIENTOS
@@ -190,6 +192,7 @@ class VentanaMovimientos(QWidget):
         # Focus inicial en búsqueda
         self.txt_buscar.setFocus()
     
+    @handle_db_errors("cargar_operarios")
     def cargar_operarios(self):
         """Carga los operarios activos"""
         try:
@@ -209,9 +212,11 @@ class VentanaMovimientos(QWidget):
                 emoji = "👷" if row[2] == "oficial" else "🔨"
                 texto = f"{emoji} {row[1]} ({row[2]})"
                 self.cmb_operario.addItem(texto, row[0])
+        
         except Exception as e:
+            log_error_bd("movimientos", "cargar_operarios", e)
             QMessageBox.critical(self, "❌ Error", f"Error al cargar operarios:\n{e}")
-    
+            
     def cambio_operario(self):
         """Al cambiar de operario, busca su furgoneta asignada"""
         operario_id = self.cmb_operario.currentData()
@@ -348,79 +353,83 @@ class VentanaMovimientos(QWidget):
             del self.articulos_temp[index]
             self.actualizar_tabla()
     
+    @handle_db_errors("guardar_movimiento")
     def guardar_movimiento(self):
         """Guarda el movimiento en la base de datos"""
         # Validaciones
         operario_id = self.cmb_operario.currentData()
-        if not operario_id:
-            QMessageBox.warning(self, "⚠️ Aviso", "Debe seleccionar un operario.")
+        if not validate_field("operario", operario_id, operario_id is not None, 
+                             "Debe seleccionar un operario", "movimientos"):
+            show_warning("⚠️ Validación", "Debe seleccionar un operario.")
             return
         
-        if not self.articulos_temp:
-            QMessageBox.warning(self, "⚠️ Aviso", "Debe agregar al menos un artículo.")
+        if not validate_field("articulos", self.articulos_temp, len(self.articulos_temp) > 0,
+                             "No hay artículos en la lista", "movimientos"):
+            show_warning("⚠️ Validación", "Debe agregar al menos un artículo.")
             return
         
         fecha = self.date_fecha.date().toString("yyyy-MM-dd")
         modo = "ENTREGAR" if self.radio_entregar.isChecked() else "RECIBIR"
         
-        try:
-            con = get_con()
-            cur = con.cursor()
-            
-            # Obtener IDs de almacén y furgoneta
-            cur.execute("SELECT id FROM almacenes WHERE nombre='Almacén' LIMIT 1")
-            almacen_id = cur.fetchone()[0]
-            
-            # Obtener furgoneta del operario
-            cur.execute("""
-                SELECT furgoneta_id FROM asignaciones_furgoneta
-                WHERE operario_id=? AND fecha=?
-            """, (operario_id, fecha))
-            furg_row = cur.fetchone()
-            
-            if not furg_row:
-                QMessageBox.warning(self, "⚠️ Aviso", "El operario no tiene furgoneta asignada para esta fecha.")
-                con.close()
-                return
-            
-            furgoneta_id = furg_row[0]
-            
-            # Determinar origen y destino según el modo
-            if modo == "ENTREGAR":
-                origen_id = almacen_id
-                destino_id = furgoneta_id
-                tipo_mov = "TRASPASO"
-            else:  # RECIBIR
-                origen_id = furgoneta_id
-                destino_id = almacen_id
-                tipo_mov = "TRASPASO"
-            
-            # Obtener nombre del operario
-            cur.execute("SELECT nombre FROM operarios WHERE id=?", (operario_id,))
-            operario_nombre = cur.fetchone()[0]
-            
-            # Registrar movimientos
-            for art in self.articulos_temp:
-                cur.execute("""
-                    INSERT INTO movimientos(fecha, tipo, origen_id, destino_id, articulo_id, cantidad, responsable)
-                    VALUES(?, ?, ?, ?, ?, ?, ?)
-                """, (fecha, tipo_mov, origen_id, destino_id, art['id'], art['cantidad'], operario_nombre))
-            
-            con.commit()
+        # El decorador @handle_db_errors capturará cualquier error automáticamente
+        con = get_con()
+        cur = con.cursor()
+        
+        # Obtener IDs de almacén y furgoneta
+        cur.execute("SELECT id FROM almacenes WHERE nombre='Almacén' LIMIT 1")
+        almacen_id = cur.fetchone()[0]
+        
+        # Obtener furgoneta del operario
+        cur.execute("""
+            SELECT furgoneta_id FROM asignaciones_furgoneta
+            WHERE operario_id=? AND fecha=?
+        """, (operario_id, fecha))
+        furg_row = cur.fetchone()
+        
+        if not furg_row:
+            show_warning("⚠️ Aviso", "El operario no tiene furgoneta asignada para esta fecha.")
             con.close()
-            
-            modo_texto = "entregado a" if modo == "ENTREGAR" else "recibido de"
-            QMessageBox.information(
-                self,
-                "✅ Éxito",
-                f"Movimiento registrado correctamente.\n\n"
-                f"{len(self.articulos_temp)} artículo(s) {modo_texto} {operario_nombre}."
-            )
-            
-            self.limpiar_todo()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al guardar:\n{e}")
+            return
+        
+        furgoneta_id = furg_row[0]
+        
+        # Determinar origen y destino según el modo
+        if modo == "ENTREGAR":
+            origen_id = almacen_id
+            destino_id = furgoneta_id
+            tipo_mov = "TRASPASO"
+        else:  # RECIBIR
+            origen_id = furgoneta_id
+            destino_id = almacen_id
+            tipo_mov = "TRASPASO"
+        
+        # Obtener nombre del operario
+        cur.execute("SELECT nombre FROM operarios WHERE id=?", (operario_id,))
+        operario_nombre = cur.fetchone()[0]
+        
+        # Registrar movimientos
+        for art in self.articulos_temp:
+            cur.execute("""
+                INSERT INTO movimientos(fecha, tipo, origen_id, destino_id, articulo_id, cantidad, responsable)
+                VALUES(?, ?, ?, ?, ?, ?, ?)
+            """, (fecha, tipo_mov, origen_id, destino_id, art['id'], art['cantidad'], operario_nombre))
+        
+        con.commit()
+        con.close()
+        
+        # Registrar operación en logs
+        detalles = f"Modo: {modo}, Operario: {operario_nombre}, Artículos: {len(self.articulos_temp)}"
+        log_operacion("movimientos", "crear_traspaso", "usuario_actual", detalles)
+        logger.info(f"Movimiento guardado exitosamente | Operario: {operario_nombre} | Items: {len(self.articulos_temp)}")
+        
+        modo_texto = "entregado a" if modo == "ENTREGAR" else "recibido de"
+        show_info(
+            "✅ Éxito",
+            f"Movimiento registrado correctamente.\n\n"
+            f"{len(self.articulos_temp)} artículo(s) {modo_texto} {operario_nombre}."
+        )
+        
+        self.limpiar_todo()
     
     def limpiar_todo(self):
         """Limpia todos los campos y la lista"""

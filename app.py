@@ -2,6 +2,8 @@
 import sys
 import time
 import socket
+import threading
+from pathlib import Path
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QMessageBox, QGridLayout
@@ -15,7 +17,7 @@ from src.ventanas.maestros.ventana_familias import VentanaFamilias
 from src.ventanas.maestros.ventana_ubicaciones import VentanaUbicaciones
 from src.ventanas.maestros.ventana_operarios import VentanaOperarios
 from src.ventanas.maestros.ventana_articulos import VentanaArticulos
-from src.ventanas.maestros.ventana_furgonetas import VentanaFurgonetas  # ← NUEVO: Gestión de Furgonetas/Almacenes
+from src.ventanas.maestros.ventana_furgonetas import VentanaFurgonetas
 from src.ventanas.consultas.ventana_stock import VentanaStock
 from src.ventanas.consultas.ventana_consumos import VentanaConsumos
 from src.ventanas.consultas.ventana_pedido_ideal import VentanaPedidoIdeal
@@ -25,6 +27,7 @@ from src.ventanas.operativas.ventana_inventario import VentanaInventario
 from src.ventanas.consultas.ventana_historico import VentanaHistorico
 from src.ui.estilos import ESTILO_LOGIN, ESTILO_VENTANA
 from src.core.idle_manager import get_idle_manager
+from src.core.logger import logger, log_inicio_sesion, log_fin_sesion, log_error_bd
 
 # ========================================
 # IMPORTAR FUNCIONES CENTRALIZADAS
@@ -122,6 +125,9 @@ class LoginWindow(QWidget):
             con.commit()
             con.close()
             
+            # Registrar inicio de sesión en logs
+            log_inicio_sesion(u, hostname)
+            
             # Abrir menú principal
             self.hide()
             self.main = MainMenuWindow(usuario=u, rol=row[1], login_window=self)
@@ -132,6 +138,7 @@ class LoginWindow(QWidget):
             idle_manager.start(login_window=self, main_window=self.main)
             
         except Exception as e:
+            log_error_bd("login", "verificar_usuario", e)
             QMessageBox.critical(self, "❌ Error", f"Error al conectar con la base de datos:\n{e}")
 
 # ========================================
@@ -190,15 +197,15 @@ class MainMenuWindow(QWidget):
                     row += 1
         
         layout.addLayout(grid)
-        
-        # NOTA: El timer de inactividad ahora se gestiona globalmente
-        # No hace falta código aquí, el idle_manager se encarga de todo
     
     def logout(self):
         """Cierra sesión manualmente"""
         # Detener el gestor de inactividad
         idle_manager = get_idle_manager()
         idle_manager.stop()
+        
+        # Registrar cierre de sesión en logs
+        log_fin_sesion(self.usuario, socket.gethostname())
         
         # Cerrar esta ventana
         self.close()
@@ -265,11 +272,11 @@ class MenuInformes(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("ℹ️ Información e Informes")
-        self.setFixedSize(600, 480)  # ← Aumentado de 400 a 480
+        self.setFixedSize(600, 480)
         self.setStyleSheet(ESTILO_VENTANA)
         
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)  # ← Aumentado de 10 a 12
+        layout.setSpacing(12)
         layout.setContentsMargins(20, 20, 20, 20)
         
         # Título
@@ -283,13 +290,13 @@ class MenuInformes(QWidget):
             ("📊 Consulta de Stock", self.abrir_stock),
             ("📋 Histórico de Movimientos", self.abrir_historico),
             ("📦 Ficha Completa de Artículo", self.abrir_ficha),
-            ("📈 Análisis de Consumos", self.abrir_consumos),  # ← NUEVA: Consolidada con tabs
-            ("🛒 Pedido Ideal Sugerido", self.abrir_pedido_ideal),  # ← NUEVA: Cálculo de pedidos
+            ("📈 Análisis de Consumos", self.abrir_consumos),
+            ("🛒 Pedido Ideal Sugerido", self.abrir_pedido_ideal),
         ]
         
         for texto, func in botones:
             btn = QPushButton(texto)
-            btn.setMinimumHeight(55)  # ← Aumentado de 50 a 55
+            btn.setMinimumHeight(55)
             btn.setStyleSheet("font-size: 13px; text-align: left; padding: 10px;")
             btn.clicked.connect(func)
             layout.addWidget(btn)
@@ -354,7 +361,7 @@ class MaestrosWindow(QWidget):
             ("👷 Operarios", self.abrir_operarios),
             ("📂 Familias", self.abrir_familias),
             ("📍 Ubicaciones", self.abrir_ubicaciones),
-            ("🏢 Almacenes/Furgonetas", self.abrir_furgonetas),  # ← ACTUALIZADO
+            ("🏢 Almacenes/Furgonetas", self.abrir_furgonetas),
         ]
         
         for texto, func in botones:
@@ -415,9 +422,41 @@ def main():
         )
         sys.exit(1)
     
+    # Verificar y crear backup si es necesario
+    try:
+        # Agregar path si es necesario para importar scripts
+        ROOT_DIR = Path(__file__).parent
+        if str(ROOT_DIR) not in sys.path:
+            sys.path.insert(0, str(ROOT_DIR))
+        
+        from scripts.backup_db import hay_backup_hoy, crear_backup
+        
+        if not hay_backup_hoy():
+            logger.info("BACKUP | No hay backup del día, creando uno...")
+            
+            # Crear backup en segundo plano
+            def hacer_backup():
+                try:
+                    if crear_backup(mostrar_log=True):
+                        logger.info("BACKUP | Backup inicial creado correctamente")
+                    else:
+                        logger.warning("BACKUP | No se pudo crear el backup inicial")
+                except Exception as e_backup:
+                    logger.error(f"BACKUP | Error en hilo de backup: {str(e_backup)}")
+            
+            # Ejecutar en un hilo separado para no bloquear la UI
+            backup_thread = threading.Thread(target=hacer_backup, daemon=True)
+            backup_thread.start()
+        else:
+            logger.info("BACKUP | Ya existe backup del día de hoy")
+    
+    except Exception as e:
+        # Si falla el sistema de backup, continuar con la app
+        logger.warning(f"BACKUP | No se pudo verificar/crear backup: {str(e)}")
+    
     window = LoginWindow()
     window.show()
     sys.exit(app.exec())
-
+        
 if __name__ == "__main__":
     main()
