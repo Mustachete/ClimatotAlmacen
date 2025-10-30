@@ -1,47 +1,52 @@
-@'
-# Byte-compiled / cache
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Virtual environments
-.venv/
+*.so
+.Python
 venv/
+.venv/
 env/
-
-# Build / dist
-build/
-dist/
+ENV/
 *.egg-info/
+.eggs/
+dist/
+build/
 
-# IDEs / editors
-.vscode/
-.idea/
-*.code-workspace
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json
 
-# OS
+# Base de datos - NO SUBIR DATOS REALES
+db/*.db
+db/*.db-journal
+db/*_pre_restore_*.db
+!db/schema.sql
+
+# Logs
+logs/
+*.log
+
+# Backups - NO SUBIR BACKUPS
+backups/
+db/backups/
+*.zip
+
+# Sistema operativo
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Logs / coverage
-*.log
-.coverage
-htmlcov/
-coverage.xml
-
-# Notebooks
-.ipynb_checkpoints/
-
-# Data temp
-*.sqlite3
-*.db
-*.db-journal
-/tmp/
+# Temporales
+*.tmp
+*.bak
 temp/
+~*
 
-# Secrets
-.env
-*.key
-*.pem
-secrets.json
-'@ | Out-File -Encoding utf8 .gitignore
+# Python version file
+.python-version
+
+# Exports
+exports/
