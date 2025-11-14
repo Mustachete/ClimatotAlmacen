@@ -1,12 +1,13 @@
 # ventana_articulos.py - Gestión de Artículos
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
+    QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidgetItem, QLineEdit, QLabel, QMessageBox, QDialog,
     QFormLayout, QHeaderView, QComboBox, QCheckBox, QTextEdit,
     QDoubleSpinBox, QScrollArea, QGroupBox
 )
 from PySide6.QtCore import Qt
-from src.ui.estilos import ESTILO_DIALOGO, ESTILO_VENTANA
+from src.ui.estilos import ESTILO_DIALOGO
+from src.ui.ventana_maestro_base import VentanaMaestroBase
 from src.services import articulos_service
 from src.core.session_manager import session_manager
 from src.repos import articulos_repo
@@ -316,115 +317,95 @@ class DialogoArticulo(QDialog):
 # ========================================
 # VENTANA PRINCIPAL DE ARTÍCULOS
 # ========================================
-class VentanaArticulos(QWidget):
+class VentanaArticulos(VentanaMaestroBase):
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("📦 Gestión de Artículos")
-        self.resize(1100, 650)
-        self.setMinimumSize(900, 500)
-        self.setStyleSheet(ESTILO_VENTANA)
-        
-        layout = QVBoxLayout(self)
-        
-        # Título
-        titulo = QLabel("📦 Gestión de Artículos del Almacén")
-        titulo.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px;")
-        titulo.setAlignment(Qt.AlignCenter)
-        layout.addWidget(titulo)
-        
-        # Barra de búsqueda y filtros
-        top_layout = QHBoxLayout()
-        
-        lbl_buscar = QLabel("🔍 Buscar:")
-        self.txt_buscar = QLineEdit()
+        # Inicializar combos de filtros antes de super()
+        self.cmb_familia_filtro = None
+        self.cmb_estado = None
+
+        super().__init__(
+            titulo="📦 Gestión de Artículos del Almacén",
+            descripcion="Administra el catálogo de artículos disponibles en el almacén",
+            icono_nuevo="➕",
+            texto_nuevo="Nuevo Artículo",
+            parent=parent
+        )
+
+    def _crear_interfaz(self):
+        """Sobrescribe para añadir filtros adicionales"""
+        super()._crear_interfaz()
+
+        # Añadir filtros adicionales en la barra superior
+        layout_principal = self.layout()
+        top_layout = layout_principal.itemAt(2).layout()
+
+        # Cambiar placeholder del buscador
         self.txt_buscar.setPlaceholderText("Buscar por nombre, EAN, referencia o palabras clave...")
-        self.txt_buscar.textChanged.connect(self.buscar)
-        
+
+        # Filtro de familia
         lbl_familia = QLabel("Familia:")
         self.cmb_familia_filtro = QComboBox()
         self.cmb_familia_filtro.addItem("Todas", None)
         self.cargar_familias_filtro()
         self.cmb_familia_filtro.currentTextChanged.connect(self.buscar)
-        
+
+        # Filtro de estado
         lbl_estado = QLabel("Estado:")
         self.cmb_estado = QComboBox()
         self.cmb_estado.addItems(["Todos", "Solo Activos", "Solo Inactivos"])
         self.cmb_estado.currentTextChanged.connect(self.buscar)
-        
-        top_layout.addWidget(lbl_buscar)
-        top_layout.addWidget(self.txt_buscar, 3)
-        top_layout.addWidget(lbl_familia)
-        top_layout.addWidget(self.cmb_familia_filtro, 1)
-        top_layout.addWidget(lbl_estado)
-        top_layout.addWidget(self.cmb_estado, 1)
-        
-        layout.addLayout(top_layout)
-        
-        # Botones de acción
-        btn_layout = QHBoxLayout()
-        
-        self.btn_nuevo = QPushButton("➕ Nuevo Artículo")
-        self.btn_nuevo.clicked.connect(self.nuevo_articulo)
-        
-        self.btn_editar = QPushButton("✏️ Editar")
-        self.btn_editar.clicked.connect(self.editar_articulo)
-        self.btn_editar.setEnabled(False)
-        
-        self.btn_eliminar = QPushButton("🗑️ Eliminar")
-        self.btn_eliminar.clicked.connect(self.eliminar_articulo)
-        self.btn_eliminar.setEnabled(False)
-        
-        btn_layout.addWidget(self.btn_nuevo)
-        btn_layout.addWidget(self.btn_editar)
-        btn_layout.addWidget(self.btn_eliminar)
-        btn_layout.addStretch()
-        
-        layout.addLayout(btn_layout)
-        
-        # Tabla de artículos
-        self.tabla = QTableWidget()
+
+        # Insertar los filtros antes del botón "Nuevo"
+        top_layout.insertWidget(2, lbl_familia)
+        top_layout.insertWidget(3, self.cmb_familia_filtro)
+        top_layout.insertWidget(4, lbl_estado)
+        top_layout.insertWidget(5, self.cmb_estado)
+
+        # Ajustar stretches
+        self.txt_buscar.setMinimumWidth(300)
+
+    def configurar_dimensiones(self):
+        """Configura las dimensiones específicas para esta ventana"""
+        self.resize(1100, 650)
+        self.setMinimumSize(900, 500)
+
+    def configurar_tabla(self):
+        """Configura las columnas de la tabla de artículos"""
         self.tabla.setColumnCount(9)
         self.tabla.setHorizontalHeaderLabels([
             "ID", "EAN", "Ref", "Nombre", "Familia", "U.Medida", "Stock Mín", "Coste", "Estado"
         ])
-        self.tabla.setSelectionBehavior(QTableWidget.SelectRows)
-        self.tabla.setSelectionMode(QTableWidget.SingleSelection)
-        self.tabla.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.tabla.itemSelectionChanged.connect(self.seleccion_cambiada)
-        self.tabla.doubleClicked.connect(self.editar_articulo)
-        
-        # Ocultar columna ID
         self.tabla.setColumnHidden(0, True)
-        
+
         # Ajustar columnas
         header = self.tabla.horizontalHeader()
-        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Nombre
-        
-        layout.addWidget(self.tabla)
-        
-        # Botón volver
-        btn_volver = QPushButton("⬅️ Volver")
-        btn_volver.clicked.connect(self.close)
-        layout.addWidget(btn_volver)
-        
-        # Cargar datos iniciales
-        self.cargar_articulos()
-    
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Nombre se estira
+
+    def get_service(self):
+        """Retorna el service de artículos"""
+        return articulos_service
+
+    def crear_dialogo(self, item_id=None):
+        """Crea el diálogo para crear/editar un artículo"""
+        return DialogoArticulo(self, item_id)
+
+    def get_nombre_item(self, fila):
+        """Retorna el nombre del artículo para mostrar en mensajes"""
+        return self.tabla.item(fila, 3).text()  # Columna 3 = Nombre
+
     def cargar_familias_filtro(self):
         """Carga las familias en el combo de filtro"""
         try:
             familias = articulos_repo.get_familias()
-
             for fam in familias:
                 self.cmb_familia_filtro.addItem(fam['nombre'], fam['id'])
         except Exception:
             pass
-    
-    def cargar_articulos(self):
-        """Carga los artículos en la tabla"""
-        filtro_texto = self.txt_buscar.text().strip() or None
-        familia_id = self.cmb_familia_filtro.currentData()
-        estado = self.cmb_estado.currentText()
+
+    def cargar_datos(self, filtro=""):
+        """Sobrescribe para manejar filtros adicionales"""
+        familia_id = self.cmb_familia_filtro.currentData() if self.cmb_familia_filtro else None
+        estado = self.cmb_estado.currentText() if self.cmb_estado else "Todos"
 
         # Convertir estado a booleano o None
         solo_activos = None
@@ -433,102 +414,44 @@ class VentanaArticulos(QWidget):
         elif estado == "Solo Inactivos":
             solo_activos = False
 
+        # Obtener artículos con filtros
         try:
+            filtro_texto = filtro if filtro else None
             articulos = articulos_service.obtener_articulos(
                 filtro_texto=filtro_texto,
                 familia_id=familia_id,
                 solo_activos=solo_activos,
                 limit=1000
             )
-
-            self.tabla.setRowCount(len(articulos))
-
-            for i, art in enumerate(articulos):
-                # ID
-                self.tabla.setItem(i, 0, QTableWidgetItem(str(art['id'])))
-                # EAN
-                self.tabla.setItem(i, 1, QTableWidgetItem(art['ean'] or ""))
-                # Ref
-                self.tabla.setItem(i, 2, QTableWidgetItem(art['ref_proveedor'] or ""))
-                # Nombre
-                self.tabla.setItem(i, 3, QTableWidgetItem(art['nombre']))
-                # Familia
-                self.tabla.setItem(i, 4, QTableWidgetItem(art['familia_nombre'] or "-"))
-                # U.Medida
-                self.tabla.setItem(i, 5, QTableWidgetItem(art['u_medida'] or "unidad"))
-                # Stock Mín
-                self.tabla.setItem(i, 6, QTableWidgetItem(str(art['min_alerta'] or 0)))
-                # Coste
-                coste_txt = f"€ {art['coste']:.2f}" if art['coste'] else "€ 0.00"
-                self.tabla.setItem(i, 7, QTableWidgetItem(coste_txt))
-                # Estado
-                estado_txt = "✅ Activo" if art['activo'] == 1 else "❌ Inactivo"
-                item_estado = QTableWidgetItem(estado_txt)
-                if art['activo'] == 0:
-                    item_estado.setForeground(Qt.gray)
-                self.tabla.setItem(i, 8, item_estado)
-
+            self.cargar_datos_en_tabla(articulos)
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar artículos:\n{e}")
-    
-    def buscar(self):
-        """Filtra la tabla"""
-        self.cargar_articulos()
-    
-    def seleccion_cambiada(self):
-        """Se activan/desactivan botones según la selección"""
-        hay_seleccion = len(self.tabla.selectedItems()) > 0
-        self.btn_editar.setEnabled(hay_seleccion)
-        self.btn_eliminar.setEnabled(hay_seleccion)
-    
-    def nuevo_articulo(self):
-        """Abre el diálogo para crear un nuevo artículo"""
-        dialogo = DialogoArticulo(self)
-        if dialogo.exec():
-            self.cargar_articulos()
-    
-    def editar_articulo(self):
-        """Abre el diálogo para editar el artículo seleccionado"""
-        seleccion = self.tabla.currentRow()
-        if seleccion < 0:
-            return
-        
-        articulo_id = int(self.tabla.item(seleccion, 0).text())
-        dialogo = DialogoArticulo(self, articulo_id)
-        if dialogo.exec():
-            self.cargar_articulos()
-    
-    def eliminar_articulo(self):
-        """Elimina el artículo seleccionado"""
-        seleccion = self.tabla.currentRow()
-        if seleccion < 0:
-            return
 
-        articulo_id = int(self.tabla.item(seleccion, 0).text())
-        nombre = self.tabla.item(seleccion, 3).text()
+    def cargar_datos_en_tabla(self, datos):
+        """Carga los artículos en la tabla con formato especial"""
+        self.tabla.setRowCount(len(datos))
 
-        respuesta = QMessageBox.question(
-            self,
-            "⚠️ Confirmar eliminación",
-            f"¿Está seguro de eliminar el artículo '{nombre}'?\n\n"
-            "Esta acción no se puede deshacer.\n"
-            "Si el artículo tiene movimientos, no podrá eliminarse.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-
-        if respuesta != QMessageBox.Yes:
-            return
-
-        # Llamar al service
-        exito, mensaje = articulos_service.eliminar_articulo(
-            articulo_id=articulo_id,
-            usuario=session_manager.get_usuario_actual() or "admin"
-        )
-
-        if not exito:
-            QMessageBox.warning(self, "⚠️ No se puede eliminar", mensaje)
-            return
-
-        QMessageBox.information(self, "✅ Éxito", mensaje)
-        self.cargar_articulos()
+        for i, art in enumerate(datos):
+            # ID
+            self.tabla.setItem(i, 0, QTableWidgetItem(str(art['id'])))
+            # EAN
+            self.tabla.setItem(i, 1, QTableWidgetItem(art['ean'] or ""))
+            # Ref
+            self.tabla.setItem(i, 2, QTableWidgetItem(art['ref_proveedor'] or ""))
+            # Nombre
+            self.tabla.setItem(i, 3, QTableWidgetItem(art['nombre']))
+            # Familia
+            self.tabla.setItem(i, 4, QTableWidgetItem(art['familia_nombre'] or "-"))
+            # U.Medida
+            self.tabla.setItem(i, 5, QTableWidgetItem(art['u_medida'] or "unidad"))
+            # Stock Mín
+            self.tabla.setItem(i, 6, QTableWidgetItem(str(art['min_alerta'] or 0)))
+            # Coste
+            coste_txt = f"€ {art['coste']:.2f}" if art['coste'] else "€ 0.00"
+            self.tabla.setItem(i, 7, QTableWidgetItem(coste_txt))
+            # Estado (con color gris para inactivos)
+            estado_txt = "✅ Activo" if art['activo'] == 1 else "❌ Inactivo"
+            item_estado = QTableWidgetItem(estado_txt)
+            if art['activo'] == 0:
+                item_estado.setForeground(Qt.gray)
+            self.tabla.setItem(i, 8, item_estado)

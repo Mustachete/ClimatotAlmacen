@@ -1,12 +1,13 @@
 # ventana_furgonetas.py - Gestión de Furgonetas y Asignaciones
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
+    QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidgetItem, QLineEdit, QLabel, QMessageBox, QDialog,
     QFormLayout, QTextEdit, QHeaderView, QSpinBox, QCheckBox, QDateEdit, QGroupBox, QComboBox
 )
 from PySide6.QtCore import Qt, QDate
 from datetime import date
-from src.ui.estilos import ESTILO_DIALOGO, ESTILO_VENTANA
+from src.ui.estilos import ESTILO_DIALOGO
+from src.ui.ventana_maestro_base import VentanaMaestroBase
 from src.services.furgonetas_service import (
     boot, list_furgonetas, alta_furgoneta, modificar_furgoneta, baja_furgoneta
 )
@@ -160,151 +161,111 @@ class DialogoFurgoneta(QDialog):
 
 
 # ========================================
+# WRAPPER DE SERVICE PARA COMPATIBILIDAD
+# ========================================
+class FurgonetasServiceWrapper:
+    """Wrapper para adaptar las funciones del service al patrón esperado por VentanaMaestroBase"""
+
+    def obtener_furgonetas(self, filtro_texto=None, limit=1000):
+        """Retorna todas las furgonetas (el service no soporta filtros por ahora)"""
+        return list_furgonetas()
+
+    def eliminar_furgoneta(self, furgoneta_id, usuario=None):
+        """Elimina una furgoneta"""
+        try:
+            baja_furgoneta(furgoneta_id)
+            return True, "Furgoneta eliminada correctamente"
+        except Exception as e:
+            return False, f"Error al eliminar: {e}"
+
+
+# Instancia global del wrapper
+_furgonetas_service_wrapper = FurgonetasServiceWrapper()
+
+
+# ========================================
 # VENTANA PRINCIPAL: GESTIÓN DE FURGONETAS
 # ========================================
-class VentanaFurgonetas(QWidget):
+class VentanaFurgonetas(VentanaMaestroBase):
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Maestros - Furgonetas")
-        self.setMinimumSize(900, 600)
-        self.resize(1000, 700)
-        self.setStyleSheet(ESTILO_VENTANA)
-
         # Asegurar esquema de base de datos
         boot()
 
-        layout = QVBoxLayout(self)
-
-        # ========================================
-        # SECCIÓN 1: LISTADO DE FURGONETAS
-        # ========================================
-        grupo_furgonetas = QGroupBox("Furgonetas Registradas")
-        layout_grupo = QVBoxLayout(grupo_furgonetas)
-
-        # Tabla de furgonetas
-        self.tabla_furgonetas = QTableWidget()
-        self.tabla_furgonetas.setColumnCount(8)
-        self.tabla_furgonetas.setHorizontalHeaderLabels([
-            "ID", "Nº", "Matrícula", "Marca", "Modelo", "Año", "Activa", "Notas"
-        ])
-        self.tabla_furgonetas.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.tabla_furgonetas.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.tabla_furgonetas.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.tabla_furgonetas.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        self.tabla_furgonetas.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
-        self.tabla_furgonetas.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        self.tabla_furgonetas.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
-        self.tabla_furgonetas.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)
-        self.tabla_furgonetas.setSelectionBehavior(QTableWidget.SelectRows)
-        self.tabla_furgonetas.setSelectionMode(QTableWidget.SingleSelection)
-        self.tabla_furgonetas.setAlternatingRowColors(True)
-
-        layout_grupo.addWidget(self.tabla_furgonetas)
-
-        # Botones de acciones
-        layout_botones = QHBoxLayout()
-
-        self.btn_nueva = QPushButton("Nueva Furgoneta")
-        self.btn_nueva.clicked.connect(self.nueva_furgoneta)
-
-        self.btn_editar = QPushButton("Editar")
-        self.btn_editar.clicked.connect(self.editar_furgoneta)
-
-        self.btn_eliminar = QPushButton("Eliminar")
-        self.btn_eliminar.clicked.connect(self.eliminar_furgoneta)
-
-        self.btn_volver = QPushButton("Volver")
-        self.btn_volver.clicked.connect(self.close)
-
-        layout_botones.addWidget(self.btn_nueva)
-        layout_botones.addWidget(self.btn_editar)
-        layout_botones.addWidget(self.btn_eliminar)
-        layout_botones.addStretch()
-        layout_botones.addWidget(self.btn_volver)
-
-        layout_grupo.addLayout(layout_botones)
-        layout.addWidget(grupo_furgonetas)
-
-        # Cargar datos iniciales
-        self.cargar_furgonetas()
-
-    def cargar_furgonetas(self):
-        """Carga todas las furgonetas en la tabla"""
-        try:
-            furgonetas = list_furgonetas()
-
-            self.tabla_furgonetas.setRowCount(0)
-
-            for furgoneta in furgonetas:
-                row = self.tabla_furgonetas.rowCount()
-                self.tabla_furgonetas.insertRow(row)
-
-                self.tabla_furgonetas.setItem(row, 0, QTableWidgetItem(str(furgoneta['id'])))
-
-                # Columna Número
-                numero_text = str(furgoneta.get('numero', '')) if furgoneta.get('numero') else ''
-                self.tabla_furgonetas.setItem(row, 1, QTableWidgetItem(numero_text))
-
-                self.tabla_furgonetas.setItem(row, 2, QTableWidgetItem(furgoneta.get('matricula', '')))
-                self.tabla_furgonetas.setItem(row, 3, QTableWidgetItem(furgoneta.get('marca', '') or ''))
-                self.tabla_furgonetas.setItem(row, 4, QTableWidgetItem(furgoneta.get('modelo', '') or ''))
-                self.tabla_furgonetas.setItem(row, 5, QTableWidgetItem(str(furgoneta.get('anio', '')) if furgoneta.get('anio') else ''))
-
-                activa_text = "Sí" if furgoneta.get('activa') else "No"
-                item_activa = QTableWidgetItem(activa_text)
-                if not furgoneta.get('activa'):
-                    item_activa.setForeground(Qt.red)
-                self.tabla_furgonetas.setItem(row, 6, item_activa)
-
-                self.tabla_furgonetas.setItem(row, 7, QTableWidgetItem(furgoneta.get('notas', '') or ''))
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error al cargar furgonetas:\n{e}")
-
-    def nueva_furgoneta(self):
-        """Abre el diálogo para crear una nueva furgoneta"""
-        dialogo = DialogoFurgoneta(self)
-        if dialogo.exec() == QDialog.Accepted:
-            self.cargar_furgonetas()
-
-    def editar_furgoneta(self):
-        """Edita la furgoneta seleccionada"""
-        seleccion = self.tabla_furgonetas.selectedItems()
-        if not seleccion:
-            QMessageBox.information(self, "Información", "Selecciona una furgoneta para editar")
-            return
-
-        row = seleccion[0].row()
-        furgoneta_id = int(self.tabla_furgonetas.item(row, 0).text())
-
-        dialogo = DialogoFurgoneta(self, furgoneta_id)
-        if dialogo.exec() == QDialog.Accepted:
-            self.cargar_furgonetas()
-
-    def eliminar_furgoneta(self):
-        """Elimina la furgoneta seleccionada"""
-        seleccion = self.tabla_furgonetas.selectedItems()
-        if not seleccion:
-            QMessageBox.information(self, "Información", "Selecciona una furgoneta para eliminar")
-            return
-
-        row = seleccion[0].row()
-        furgoneta_id = int(self.tabla_furgonetas.item(row, 0).text())
-        matricula = self.tabla_furgonetas.item(row, 2).text()  # Ahora la matrícula está en columna 2
-
-        respuesta = QMessageBox.question(
-            self,
-            "Confirmar Eliminación",
-            f"¿Estás seguro de que deseas eliminar la furgoneta '{matricula}'?\n\nEsta acción es irreversible.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+        super().__init__(
+            titulo="🚐 Gestión de Furgonetas",
+            descripcion="Administra las furgonetas de la empresa",
+            icono_nuevo="➕",
+            texto_nuevo="Nueva Furgoneta",
+            parent=parent
         )
 
-        if respuesta == QMessageBox.Yes:
-            try:
-                baja_furgoneta(furgoneta_id)
-                QMessageBox.information(self, "Éxito", "Furgoneta eliminada correctamente")
-                self.cargar_furgonetas()
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Error al eliminar:\n{e}")
+    def configurar_dimensiones(self):
+        """Configura las dimensiones específicas para esta ventana"""
+        self.setMinimumSize(900, 600)
+        self.resize(1000, 700)
+
+    def configurar_tabla(self):
+        """Configura las columnas de la tabla de furgonetas"""
+        self.tabla.setColumnCount(8)
+        self.tabla.setHorizontalHeaderLabels([
+            "ID", "Nº", "Matrícula", "Marca", "Modelo", "Año", "Activa", "Notas"
+        ])
+        self.tabla.setColumnHidden(0, True)
+
+        # Ajustar columnas
+        header = self.tabla.horizontalHeader()
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Nº
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Matrícula
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Marca
+        header.setSectionResizeMode(4, QHeaderView.Stretch)  # Modelo
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Año
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # Activa
+        header.setSectionResizeMode(7, QHeaderView.Stretch)  # Notas
+
+    def get_service(self):
+        """Retorna el wrapper del service de furgonetas"""
+        return _furgonetas_service_wrapper
+
+    def crear_dialogo(self, item_id=None):
+        """Crea el diálogo para crear/editar una furgoneta"""
+        return DialogoFurgoneta(self, item_id)
+
+    def get_nombre_item(self, fila):
+        """Retorna la matrícula para mostrar en mensajes"""
+        return self.tabla.item(fila, 2).text()  # Columna 2 = Matrícula
+
+    def cargar_datos_en_tabla(self, datos):
+        """Carga las furgonetas en la tabla con formato especial"""
+        self.tabla.setRowCount(len(datos))
+
+        for i, furgoneta in enumerate(datos):
+            # ID
+            self.tabla.setItem(i, 0, QTableWidgetItem(str(furgoneta['id'])))
+
+            # Número
+            numero_text = str(furgoneta.get('numero', '')) if furgoneta.get('numero') else ''
+            self.tabla.setItem(i, 1, QTableWidgetItem(numero_text))
+
+            # Matrícula
+            self.tabla.setItem(i, 2, QTableWidgetItem(furgoneta.get('matricula', '')))
+
+            # Marca
+            self.tabla.setItem(i, 3, QTableWidgetItem(furgoneta.get('marca', '') or ''))
+
+            # Modelo
+            self.tabla.setItem(i, 4, QTableWidgetItem(furgoneta.get('modelo', '') or ''))
+
+            # Año
+            anio_text = str(furgoneta.get('anio', '')) if furgoneta.get('anio') else ''
+            self.tabla.setItem(i, 5, QTableWidgetItem(anio_text))
+
+            # Activa (con color)
+            activa_text = "✅ Sí" if furgoneta.get('activa') else "❌ No"
+            item_activa = QTableWidgetItem(activa_text)
+            if not furgoneta.get('activa'):
+                item_activa.setForeground(Qt.red)
+            self.tabla.setItem(i, 6, item_activa)
+
+            # Notas
+            self.tabla.setItem(i, 7, QTableWidgetItem(furgoneta.get('notas', '') or ''))
 

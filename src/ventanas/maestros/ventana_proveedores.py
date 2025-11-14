@@ -1,11 +1,11 @@
 # ventana_proveedores.py - Gestión de Proveedores
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
+    QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidgetItem, QLineEdit, QLabel, QMessageBox, QDialog,
     QFormLayout, QTextEdit, QHeaderView
 )
-from PySide6.QtCore import Qt
-from src.ui.estilos import ESTILO_DIALOGO, ESTILO_VENTANA
+from src.ui.estilos import ESTILO_DIALOGO
+from src.ui.ventana_maestro_base import VentanaMaestroBase
 from src.services import proveedores_service
 from src.core.session_manager import session_manager
 
@@ -126,61 +126,26 @@ class DialogoProveedor(QDialog):
 # ========================================
 # VENTANA PRINCIPAL DE PROVEEDORES
 # ========================================
-class VentanaProveedores(QWidget):
+class VentanaProveedores(VentanaMaestroBase):
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("🏭 Gestión de Proveedores")
+        super().__init__(
+            titulo="🏭 Gestión de Proveedores",
+            descripcion="Administra los proveedores del almacén",
+            icono_nuevo="➕",
+            texto_nuevo="Nuevo Proveedor",
+            parent=parent
+        )
+
+    def configurar_dimensiones(self):
+        """Configura las dimensiones específicas para esta ventana"""
         self.setFixedSize(950, 650)
-        self.setStyleSheet(ESTILO_VENTANA)
-        
-        layout = QVBoxLayout(self)
-        
-        # Título
-        titulo = QLabel("🏭 Gestión de Proveedores")
-        titulo.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px;")
-        titulo.setAlignment(Qt.AlignCenter)
-        layout.addWidget(titulo)
-        
-        # Barra de búsqueda y botones superiores
-        top_layout = QHBoxLayout()
-        
-        lbl_buscar = QLabel("🔍 Buscar:")
-        self.txt_buscar = QLineEdit()
-        self.txt_buscar.setPlaceholderText("Buscar por nombre, teléfono, contacto o email...")
-        self.txt_buscar.textChanged.connect(self.buscar)
-        
-        self.btn_nuevo = QPushButton("➕ Nuevo Proveedor")
-        self.btn_nuevo.clicked.connect(self.nuevo_proveedor)
-        
-        self.btn_editar = QPushButton("✏️ Editar")
-        self.btn_editar.clicked.connect(self.editar_proveedor)
-        self.btn_editar.setEnabled(False)
-        
-        self.btn_eliminar = QPushButton("🗑️ Eliminar")
-        self.btn_eliminar.clicked.connect(self.eliminar_proveedor)
-        self.btn_eliminar.setEnabled(False)
-        
-        top_layout.addWidget(lbl_buscar)
-        top_layout.addWidget(self.txt_buscar)
-        top_layout.addWidget(self.btn_nuevo)
-        top_layout.addWidget(self.btn_editar)
-        top_layout.addWidget(self.btn_eliminar)
-        
-        layout.addLayout(top_layout)
-        
-        # Tabla de proveedores
-        self.tabla = QTableWidget()
+
+    def configurar_tabla(self):
+        """Configura las columnas de la tabla de proveedores"""
         self.tabla.setColumnCount(6)
         self.tabla.setHorizontalHeaderLabels(["ID", "Nombre", "Teléfono", "Contacto", "Email", "Notas"])
-        self.tabla.setSelectionBehavior(QTableWidget.SelectRows)
-        self.tabla.setSelectionMode(QTableWidget.SingleSelection)
-        self.tabla.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.tabla.itemSelectionChanged.connect(self.seleccion_cambiada)
-        self.tabla.doubleClicked.connect(self.editar_proveedor)
-        
-        # Ocultar columna ID
         self.tabla.setColumnHidden(0, True)
-        
+
         # Ajustar columnas
         header = self.tabla.horizontalHeader()
         header.setSectionResizeMode(1, QHeaderView.Stretch)  # Nombre
@@ -188,99 +153,22 @@ class VentanaProveedores(QWidget):
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Contacto
         header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Email
         header.setSectionResizeMode(5, QHeaderView.Stretch)  # Notas
-        
-        layout.addWidget(self.tabla)
-        
-        # Botón volver
-        btn_volver = QPushButton("⬅️ Volver")
-        btn_volver.clicked.connect(self.close)
-        layout.addWidget(btn_volver)
-        
-        # Cargar datos iniciales
-        self.cargar_proveedores()
-    
-    def cargar_proveedores(self, filtro=""):
+
+    def get_service(self):
+        """Retorna el service de proveedores"""
+        return proveedores_service
+
+    def crear_dialogo(self, item_id=None):
+        """Crea el diálogo para crear/editar un proveedor"""
+        return DialogoProveedor(self, item_id)
+
+    def cargar_datos_en_tabla(self, datos):
         """Carga los proveedores en la tabla"""
-        try:
-            filtro_texto = filtro if filtro else None
-
-            proveedores = proveedores_service.obtener_proveedores(
-                filtro_texto=filtro_texto,
-                limit=1000
-            )
-
-            self.tabla.setRowCount(len(proveedores))
-
-            for i, prov in enumerate(proveedores):
-                self.tabla.setItem(i, 0, QTableWidgetItem(str(prov['id'])))
-                self.tabla.setItem(i, 1, QTableWidgetItem(prov['nombre'] or ""))
-                self.tabla.setItem(i, 2, QTableWidgetItem(prov['telefono'] or ""))
-                self.tabla.setItem(i, 3, QTableWidgetItem(prov['contacto'] or ""))
-                self.tabla.setItem(i, 4, QTableWidgetItem(prov['email'] or ""))
-                self.tabla.setItem(i, 5, QTableWidgetItem(prov['notas'] or ""))
-
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al cargar proveedores:\n{e}")
-            
-    def buscar(self):
-        """Filtra la tabla según el texto de búsqueda"""
-        filtro = self.txt_buscar.text().strip()
-        self.cargar_proveedores(filtro)
-    
-    def seleccion_cambiada(self):
-        """Se activan/desactivan botones según la selección"""
-        hay_seleccion = len(self.tabla.selectedItems()) > 0
-        self.btn_editar.setEnabled(hay_seleccion)
-        self.btn_eliminar.setEnabled(hay_seleccion)
-    
-    def nuevo_proveedor(self):
-        """Abre el diálogo para crear un nuevo proveedor"""
-        dialogo = DialogoProveedor(self)
-        if dialogo.exec():
-            self.cargar_proveedores()
-    
-    def editar_proveedor(self):
-        """Abre el diálogo para editar el proveedor seleccionado"""
-        seleccion = self.tabla.currentRow()
-        if seleccion < 0:
-            return
-        
-        proveedor_id = int(self.tabla.item(seleccion, 0).text())
-        dialogo = DialogoProveedor(self, proveedor_id)
-        if dialogo.exec():
-            self.cargar_proveedores()
-    
-    def eliminar_proveedor(self):
-        """Elimina el proveedor seleccionado"""
-        seleccion = self.tabla.currentRow()
-        if seleccion < 0:
-            return
-
-        proveedor_id = int(self.tabla.item(seleccion, 0).text())
-        nombre = self.tabla.item(seleccion, 1).text()
-
-        # Confirmar eliminación
-        respuesta = QMessageBox.question(
-            self,
-            "⚠️ Confirmar eliminación",
-            f"¿Está seguro de eliminar el proveedor '{nombre}'?\n\n"
-            "Esta acción no se puede deshacer.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-
-        if respuesta != QMessageBox.Yes:
-            return
-
-        # Llamar al service
-        exito, mensaje = proveedores_service.eliminar_proveedor(
-            proveedor_id=proveedor_id,
-            usuario=session_manager.get_usuario_actual() or "admin"
-        )
-
-        if not exito:
-            QMessageBox.warning(self, "⚠️ No se puede eliminar", mensaje)
-            return
-
-        QMessageBox.information(self, "✅ Éxito", mensaje)
-        self.cargar_proveedores()
+        self.tabla.setRowCount(len(datos))
+        for i, prov in enumerate(datos):
+            self.tabla.setItem(i, 0, QTableWidgetItem(str(prov['id'])))
+            self.tabla.setItem(i, 1, QTableWidgetItem(prov['nombre'] or ""))
+            self.tabla.setItem(i, 2, QTableWidgetItem(prov['telefono'] or ""))
+            self.tabla.setItem(i, 3, QTableWidgetItem(prov['contacto'] or ""))
+            self.tabla.setItem(i, 4, QTableWidgetItem(prov['email'] or ""))
+            self.tabla.setItem(i, 5, QTableWidgetItem(prov['notas'] or ""))

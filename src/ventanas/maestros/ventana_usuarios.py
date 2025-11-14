@@ -1,11 +1,12 @@
 # ventana_usuarios.py - Gestión de Usuarios del Sistema
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
+    QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidgetItem, QLineEdit, QLabel, QMessageBox, QDialog,
     QFormLayout, QHeaderView, QComboBox, QCheckBox
 )
 from PySide6.QtCore import Qt
-from src.ui.estilos import ESTILO_DIALOGO, ESTILO_VENTANA
+from src.ui.estilos import ESTILO_DIALOGO
+from src.ui.ventana_maestro_base import VentanaMaestroBase
 from src.services import usuarios_service
 from src.core.session_manager import session_manager
 
@@ -183,96 +184,38 @@ class DialogoUsuario(QDialog):
 # ========================================
 # VENTANA PRINCIPAL DE USUARIOS
 # ========================================
-class VentanaUsuarios(QWidget):
+class VentanaUsuarios(VentanaMaestroBase):
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("👥 Gestión de Usuarios del Sistema")
-        self.resize(900, 550)
-        self.setMinimumSize(700, 450)
-        self.setStyleSheet(ESTILO_VENTANA)
-
-        # Verificar que el usuario actual es admin
+        # Verificar que el usuario actual es admin ANTES de llamar a super()
         if not session_manager.is_admin():
+            # Crear widget temporal para mostrar mensaje
+            from PySide6.QtWidgets import QWidget
+            temp = QWidget(parent)
             QMessageBox.critical(
-                self,
+                temp,
                 "❌ Acceso Denegado",
                 "Solo los administradores pueden gestionar usuarios.\n\n"
                 "Contacte a un administrador del sistema."
             )
-            self.close()
-            return
+            # No podemos continuar, lanzar excepción
+            raise PermissionError("Solo administradores pueden acceder a gestión de usuarios")
 
-        layout = QVBoxLayout(self)
-
-        # Título
-        titulo = QLabel("👥 Gestión de Usuarios del Sistema")
-        titulo.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px;")
-        titulo.setAlignment(Qt.AlignCenter)
-        layout.addWidget(titulo)
-
-        # Descripción
-        desc = QLabel(
-            "Administre los usuarios que tienen acceso al sistema. "
-            "Solo usuarios con rol 'admin' pueden acceder a esta funcionalidad."
+        super().__init__(
+            titulo="👥 Gestión de Usuarios del Sistema",
+            descripcion="Administre los usuarios que tienen acceso al sistema. Solo usuarios con rol 'admin' pueden acceder a esta funcionalidad.",
+            icono_nuevo="➕",
+            texto_nuevo="Nuevo Usuario",
+            parent=parent
         )
-        desc.setStyleSheet("color: gray; font-size: 12px; margin-bottom: 10px;")
-        desc.setAlignment(Qt.AlignCenter)
-        desc.setWordWrap(True)
-        layout.addWidget(desc)
 
-        # Barra de búsqueda y botones superiores
-        top_layout = QHBoxLayout()
+        # Añadir información de sesión actual al final
+        self._agregar_info_sesion()
 
-        lbl_buscar = QLabel("🔍 Buscar:")
-        self.txt_buscar = QLineEdit()
-        self.txt_buscar.setPlaceholderText("Filtrar por usuario...")
-        self.txt_buscar.textChanged.connect(self.buscar)
+    def _agregar_info_sesion(self):
+        """Añade información de la sesión actual debajo de la tabla"""
+        layout_principal = self.layout()
 
-        self.btn_nuevo = QPushButton("➕ Nuevo Usuario")
-        self.btn_nuevo.clicked.connect(self.nuevo_usuario)
-
-        self.btn_editar = QPushButton("✏️ Editar")
-        self.btn_editar.clicked.connect(self.editar_usuario)
-        self.btn_editar.setEnabled(False)
-
-        self.btn_eliminar = QPushButton("🗑️ Eliminar")
-        self.btn_eliminar.clicked.connect(self.eliminar_usuario)
-        self.btn_eliminar.setEnabled(False)
-
-        self.btn_refrescar = QPushButton("🔄 Refrescar")
-        self.btn_refrescar.clicked.connect(lambda: self.cargar_usuarios())
-
-        top_layout.addWidget(lbl_buscar)
-        top_layout.addWidget(self.txt_buscar)
-        top_layout.addWidget(self.btn_nuevo)
-        top_layout.addWidget(self.btn_editar)
-        top_layout.addWidget(self.btn_eliminar)
-        top_layout.addWidget(self.btn_refrescar)
-
-        layout.addLayout(top_layout)
-
-        # Tabla de usuarios
-        self.tabla = QTableWidget()
-        self.tabla.setColumnCount(4)
-        self.tabla.setHorizontalHeaderLabels(["Usuario", "Rol", "Estado", "ID_Hidden"])
-        self.tabla.setSelectionBehavior(QTableWidget.SelectRows)
-        self.tabla.setSelectionMode(QTableWidget.SingleSelection)
-        self.tabla.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.tabla.itemSelectionChanged.connect(self.seleccion_cambiada)
-        self.tabla.doubleClicked.connect(self.editar_usuario)
-
-        # Ocultar columna ID
-        self.tabla.setColumnHidden(3, True)
-
-        # Ajustar columnas
-        header = self.tabla.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Usuario
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Rol
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Estado
-
-        layout.addWidget(self.tabla)
-
-        # Información de sesión actual
+        # Insertar antes del botón volver (que está al final)
         info_layout = QHBoxLayout()
         usuario_actual = session_manager.get_usuario_actual() or "desconocido"
         rol_actual = session_manager.get_rol_actual() or "desconocido"
@@ -281,79 +224,65 @@ class VentanaUsuarios(QWidget):
         info_label.setStyleSheet("color: #64748b; font-size: 11px;")
         info_layout.addWidget(info_label)
         info_layout.addStretch()
-        layout.addLayout(info_layout)
 
-        # Botón volver
-        btn_volver = QPushButton("⬅️ Volver")
-        btn_volver.clicked.connect(self.close)
-        layout.addWidget(btn_volver)
+        # Insertar antes del último widget (botón volver)
+        layout_principal.insertLayout(layout_principal.count() - 1, info_layout)
 
-        # Cargar datos iniciales
-        self.cargar_usuarios()
+    def _crear_interfaz(self):
+        """Sobrescribe para añadir botón Refrescar"""
+        super()._crear_interfaz()
 
-    def cargar_usuarios(self, filtro=""):
-        """Carga los usuarios en la tabla"""
-        try:
-            filtro_texto = filtro if filtro else None
-            usuarios = usuarios_service.obtener_usuarios(filtro_texto=filtro_texto, limit=1000)
+        # Añadir botón Refrescar a la barra superior
+        layout_principal = self.layout()
+        top_layout = layout_principal.itemAt(2).layout()
 
-            self.tabla.setRowCount(len(usuarios))
+        btn_refrescar = QPushButton("🔄 Refrescar")
+        btn_refrescar.clicked.connect(lambda: self.cargar_datos())
+        top_layout.addWidget(btn_refrescar)
 
-            for i, user in enumerate(usuarios):
-                # Usuario
-                self.tabla.setItem(i, 0, QTableWidgetItem(user['usuario'] or ""))
+    def configurar_dimensiones(self):
+        """Configura las dimensiones específicas para esta ventana"""
+        self.resize(900, 550)
+        self.setMinimumSize(700, 450)
 
-                # Rol
-                rol_text = user['rol'] or ""
-                rol_item = QTableWidgetItem(rol_text.capitalize())
-                if rol_text == "admin":
-                    rol_item.setForeground(Qt.blue)
-                self.tabla.setItem(i, 1, rol_item)
+    def configurar_tabla(self):
+        """Configura las columnas de la tabla de usuarios"""
+        self.tabla.setColumnCount(4)
+        self.tabla.setHorizontalHeaderLabels(["Usuario", "Rol", "Estado", "ID_Hidden"])
+        self.tabla.setColumnHidden(3, True)  # Columna oculta con usuario
 
-                # Estado
-                activo = bool(user['activo'])
-                estado_text = "✅ Activo" if activo else "❌ Inactivo"
-                estado_item = QTableWidgetItem(estado_text)
-                if not activo:
-                    estado_item.setForeground(Qt.red)
-                self.tabla.setItem(i, 2, estado_item)
+        # Ajustar columnas
+        header = self.tabla.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Usuario
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Rol
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Estado
 
-                # ID oculto (usuario)
-                self.tabla.setItem(i, 3, QTableWidgetItem(user['usuario'] or ""))
+    def get_service(self):
+        """Retorna el service de usuarios"""
+        return usuarios_service
 
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al cargar usuarios:\n{e}")
+    def crear_dialogo(self, item_id=None):
+        """Crea el diálogo para crear/editar un usuario"""
+        # En usuarios, el item_id es el nombre de usuario (string)
+        return DialogoUsuario(self, item_id)
 
-    def buscar(self):
-        """Filtra la tabla según el texto de búsqueda"""
-        filtro = self.txt_buscar.text().strip()
-        self.cargar_usuarios(filtro)
+    def get_nombre_item(self, fila):
+        """Retorna el nombre de usuario para mostrar en mensajes"""
+        return self.tabla.item(fila, 0).text()  # Columna 0 = Usuario
 
-    def seleccion_cambiada(self):
-        """Se activan/desactivan botones según la selección"""
-        hay_seleccion = len(self.tabla.selectedItems()) > 0
-        self.btn_editar.setEnabled(hay_seleccion)
-        self.btn_eliminar.setEnabled(hay_seleccion)
-
-    def nuevo_usuario(self):
-        """Abre el diálogo para crear un nuevo usuario"""
-        dialogo = DialogoUsuario(self)
-        if dialogo.exec():
-            self.cargar_usuarios()
-
-    def editar_usuario(self):
-        """Abre el diálogo para editar el usuario seleccionado"""
+    def editar_item(self):
+        """Sobrescribe para usar columna 3 (usuario) en lugar de columna 0 (ID)"""
         seleccion = self.tabla.currentRow()
         if seleccion < 0:
             return
 
         usuario = self.tabla.item(seleccion, 3).text()  # Columna oculta con usuario
-        dialogo = DialogoUsuario(self, usuario)
+        dialogo = self.crear_dialogo(usuario)
         if dialogo.exec():
-            self.cargar_usuarios()
+            self.cargar_datos()
 
-    def eliminar_usuario(self):
-        """Elimina el usuario seleccionado"""
+    def eliminar_item(self):
+        """Sobrescribe para validar que no se elimine a sí mismo"""
         seleccion = self.tabla.currentRow()
         if seleccion < 0:
             return
@@ -373,6 +302,7 @@ class VentanaUsuarios(QWidget):
             )
             return
 
+        # Confirmar eliminación
         respuesta = QMessageBox.question(
             self,
             "⚠️ Confirmar eliminación",
@@ -387,6 +317,7 @@ class VentanaUsuarios(QWidget):
         if respuesta != QMessageBox.Yes:
             return
 
+        # Eliminar
         exito, mensaje = usuarios_service.eliminar_usuario(
             usuario=usuario,
             usuario_eliminador=usuario_actual or "admin"
@@ -397,4 +328,30 @@ class VentanaUsuarios(QWidget):
             return
 
         QMessageBox.information(self, "✅ Éxito", mensaje)
-        self.cargar_usuarios()
+        self.cargar_datos()
+
+    def cargar_datos_en_tabla(self, datos):
+        """Carga los usuarios en la tabla con formato especial"""
+        self.tabla.setRowCount(len(datos))
+
+        for i, user in enumerate(datos):
+            # Usuario
+            self.tabla.setItem(i, 0, QTableWidgetItem(user['usuario'] or ""))
+
+            # Rol (con color azul para admin)
+            rol_text = user['rol'] or ""
+            rol_item = QTableWidgetItem(rol_text.capitalize())
+            if rol_text == "admin":
+                rol_item.setForeground(Qt.blue)
+            self.tabla.setItem(i, 1, rol_item)
+
+            # Estado (con color rojo para inactivos)
+            activo = bool(user['activo'])
+            estado_text = "✅ Activo" if activo else "❌ Inactivo"
+            estado_item = QTableWidgetItem(estado_text)
+            if not activo:
+                estado_item.setForeground(Qt.red)
+            self.tabla.setItem(i, 2, estado_item)
+
+            # ID oculto (usuario)
+            self.tabla.setItem(i, 3, QTableWidgetItem(user['usuario'] or ""))
