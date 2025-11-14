@@ -12,7 +12,13 @@ from typing import List, Dict, Any
 
 from src.services import pedido_ideal_service
 from src.repos import pedido_ideal_repo
-from src.ui.estilos import ESTILO_VENTANA
+from src.ui.estilos import (
+    ESTILO_VENTANA,
+    ESTILO_TITULO_VENTANA,
+    ESTILO_TABS,
+    ESTILO_ALERTA_INFO,
+    ESTILO_DESCRIPCION
+)
 
 
 class VentanaPedidoIdeal(QWidget):
@@ -43,7 +49,7 @@ class VentanaPedidoIdeal(QWidget):
         # Título
         titulo = QLabel("📦 PEDIDO IDEAL SUGERIDO")
         titulo.setAlignment(Qt.AlignCenter)
-        titulo.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px;")
+        titulo.setStyleSheet(ESTILO_TITULO_VENTANA)
         layout.addWidget(titulo)
         
         # Panel de configuración
@@ -51,35 +57,12 @@ class VentanaPedidoIdeal(QWidget):
         
         # Panel de resumen
         self.label_resumen = QLabel("Configure los parámetros y presione 'Calcular Pedido'")
-        self.label_resumen.setStyleSheet("""
-            background: #f8fafc;
-            padding: 15px;
-            border: 1px solid #e2e8f0;
-            border-radius: 4px;
-            font-size: 13px;
-        """)
+        self.label_resumen.setStyleSheet(ESTILO_ALERTA_INFO)
         layout.addWidget(self.label_resumen)
         
         # Tabs: Vista general y por proveedor
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #cbd5e1;
-                border-radius: 4px;
-                background: white;
-            }
-            QTabBar::tab {
-                background: #f1f5f9;
-                border: 1px solid #cbd5e1;
-                padding: 8px 16px;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background: white;
-                border-bottom: 2px solid #3b82f6;
-                font-weight: bold;
-            }
-        """)
+        self.tabs.setStyleSheet(ESTILO_TABS)
         
         # Tab 1: Vista general
         self.tab_general = self._crear_tab_general()
@@ -195,7 +178,7 @@ class VentanaPedidoIdeal(QWidget):
         
         # Info superior
         info = QLabel("Vista consolidada de todos los artículos que necesitan reposición")
-        info.setStyleSheet("color: #64748b; font-size: 12px; padding: 5px;")
+        info.setStyleSheet(ESTILO_DESCRIPCION)
         layout.addWidget(info)
         
         # Tabla general
@@ -451,7 +434,7 @@ class VentanaPedidoIdeal(QWidget):
         
         # Info
         info = QLabel("Resumen por proveedor - Haz clic en un tab específico para ver el detalle")
-        info.setStyleSheet("color: #64748b; font-size: 12px; padding: 5px;")
+        info.setStyleSheet(ESTILO_DESCRIPCION)
         layout.addWidget(info)
         
         # Tabla resumen de proveedores
