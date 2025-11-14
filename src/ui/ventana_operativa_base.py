@@ -43,7 +43,7 @@ Ejemplo de uso:
 Reducción esperada: ~150-200 líneas por ventana operativa
 """
 
-from abc import ABC, abstractmethod
+from abc import ABCMeta, abstractmethod
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
     QTableWidgetItem, QLabel, QMessageBox, QGroupBox, QHeaderView,
@@ -59,7 +59,12 @@ from src.dialogs.buscador_articulos import BuscadorArticulos
 from src.core.session_manager import session_manager
 
 
-class VentanaOperativaBase(QWidget, ABC):
+# Metaclass que combina QWidget y ABCMeta
+class QABCMeta(type(QWidget), ABCMeta):
+    pass
+
+
+class VentanaOperativaBase(QWidget, metaclass=QABCMeta):
     """
     Clase base abstracta para todas las ventanas de operaciones con artículos.
 

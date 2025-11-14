@@ -37,7 +37,7 @@ Ejemplo de uso:
 Reducción esperada: ~150 líneas por ventana maestro (de ~220 líneas a ~70 líneas)
 """
 
-from abc import ABC, abstractmethod
+from abc import ABCMeta, abstractmethod
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidgetItem, QLineEdit, QLabel, QMessageBox, QHeaderView
@@ -49,7 +49,12 @@ from src.ui.widgets_base import TituloVentana, DescripcionVentana, TablaEstandar
 from src.core.session_manager import session_manager
 
 
-class VentanaMaestroBase(QWidget, ABC):
+# Metaclass que combina QWidget y ABCMeta
+class QABCMeta(type(QWidget), ABCMeta):
+    pass
+
+
+class VentanaMaestroBase(QWidget, metaclass=QABCMeta):
     """
     Clase base abstracta para todas las ventanas de gestión de maestros.
 
