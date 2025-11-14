@@ -12,7 +12,12 @@ from datetime import date, datetime
 from typing import List, Dict, Any
 
 from src.services import consumos_service
-from src.ui.estilos import ESTILO_VENTANA
+from src.ui.estilos import (
+    ESTILO_VENTANA,
+    ESTILO_TITULO_VENTANA,
+    ESTILO_TABS,
+    ESTILO_ALERTA_INFO
+)
 
 
 class VentanaConsumos(QWidget):
@@ -37,32 +42,12 @@ class VentanaConsumos(QWidget):
         # Título
         titulo = QLabel("📊 ANÁLISIS DE CONSUMOS")
         titulo.setAlignment(Qt.AlignCenter)
-        titulo.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px;")
+        titulo.setStyleSheet(ESTILO_TITULO_VENTANA)
         layout.addWidget(titulo)
         
         # Tabs principales
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #cbd5e1;
-                border-radius: 4px;
-                background: white;
-            }
-            QTabBar::tab {
-                background: #f1f5f9;
-                border: 1px solid #cbd5e1;
-                padding: 10px 20px;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background: white;
-                border-bottom: 2px solid #3b82f6;
-                font-weight: bold;
-            }
-            QTabBar::tab:hover {
-                background: #e2e8f0;
-            }
-        """)
+        self.tabs.setStyleSheet(ESTILO_TABS)
         
         # Crear cada tab
         self.tab_ot = self._crear_tab_ot()
@@ -119,13 +104,7 @@ class VentanaConsumos(QWidget):
         
         # Panel de resumen
         self.ot_resumen = QLabel("Seleccione una OT para ver el detalle")
-        self.ot_resumen.setStyleSheet("""
-            background: #f8fafc;
-            padding: 15px;
-            border: 1px solid #e2e8f0;
-            border-radius: 4px;
-            font-size: 13px;
-        """)
+        self.ot_resumen.setStyleSheet(ESTILO_ALERTA_INFO)
         layout.addWidget(self.ot_resumen)
         
         # Tabla de detalle
@@ -302,13 +281,7 @@ class VentanaConsumos(QWidget):
         
         # Panel de resumen
         self.operario_resumen = QLabel("Seleccione un operario y período")
-        self.operario_resumen.setStyleSheet("""
-            background: #f8fafc;
-            padding: 15px;
-            border: 1px solid #e2e8f0;
-            border-radius: 4px;
-            font-size: 13px;
-        """)
+        self.operario_resumen.setStyleSheet(ESTILO_ALERTA_INFO)
         layout.addWidget(self.operario_resumen)
         
         # Layout horizontal: tabla de detalle + top artículos
@@ -475,13 +448,7 @@ class VentanaConsumos(QWidget):
         
         # Panel de resumen
         self.furgoneta_resumen = QLabel("Seleccione una furgoneta y período")
-        self.furgoneta_resumen.setStyleSheet("""
-            background: #f8fafc;
-            padding: 15px;
-            border: 1px solid #e2e8f0;
-            border-radius: 4px;
-            font-size: 13px;
-        """)
+        self.furgoneta_resumen.setStyleSheet(ESTILO_ALERTA_INFO)
         layout.addWidget(self.furgoneta_resumen)
         
         # Tabla de detalle
@@ -618,13 +585,7 @@ class VentanaConsumos(QWidget):
         
         # Panel de resumen general
         self.periodo_resumen = QLabel("Seleccione un período para ver el análisis")
-        self.periodo_resumen.setStyleSheet("""
-            background: #f8fafc;
-            padding: 20px;
-            border: 1px solid #e2e8f0;
-            border-radius: 4px;
-            font-size: 13px;
-        """)
+        self.periodo_resumen.setStyleSheet(ESTILO_ALERTA_INFO)
         layout.addWidget(self.periodo_resumen)
         
         # Layout horizontal: Top artículos + Top operarios
@@ -785,13 +746,7 @@ class VentanaConsumos(QWidget):
         
         # Panel de resumen
         self.articulo_resumen = QLabel("Busque un artículo para ver su análisis de consumos")
-        self.articulo_resumen.setStyleSheet("""
-            background: #f8fafc;
-            padding: 15px;
-            border: 1px solid #e2e8f0;
-            border-radius: 4px;
-            font-size: 13px;
-        """)
+        self.articulo_resumen.setStyleSheet(ESTILO_ALERTA_INFO)
         layout.addWidget(self.articulo_resumen)
         
         # Tabla de histórico
