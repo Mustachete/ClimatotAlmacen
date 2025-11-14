@@ -1,8 +1,7 @@
 # ventana_historico.py - Histórico de Movimientos
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
-    QTableWidgetItem, QLineEdit, QLabel, QMessageBox, QComboBox,
-    QDateEdit, QGroupBox, QHeaderView, QCheckBox
+    QWidget, QVBoxLayout, QHBoxLayout, QTableWidgetItem, QLineEdit,
+    QLabel, QMessageBox, QComboBox, QDateEdit, QHeaderView, QCheckBox
 )
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QColor
@@ -10,6 +9,9 @@ from pathlib import Path
 import sqlite3
 import datetime
 from src.ui.estilos import ESTILO_VENTANA
+from src.ui.widgets_base import (
+    TituloVentana, PanelFiltros, TablaEstandar, BotonPrimario, BotonSecundario
+)
 from src.core.db_utils import get_con
 
 class VentanaHistorico(QWidget):
@@ -20,15 +22,14 @@ class VentanaHistorico(QWidget):
         self.setStyleSheet(ESTILO_VENTANA)
         
         layout = QVBoxLayout(self)
-        
+
         # Título
-        titulo = QLabel("📋 Histórico Completo de Movimientos")
-        titulo.setStyleSheet("font-size: 20px; font-weight: bold; margin: 10px;")
+        titulo = TituloVentana("📋 Histórico Completo de Movimientos")
         titulo.setAlignment(Qt.AlignCenter)
         layout.addWidget(titulo)
         
         # ========== FILTROS ==========
-        grupo_filtros = QGroupBox("🔍 Filtros de Búsqueda")
+        grupo_filtros = PanelFiltros("🔍 Filtros de Búsqueda")
         filtros_layout = QVBoxLayout()
         
         # Fila 1: Fechas
@@ -99,12 +100,10 @@ class VentanaHistorico(QWidget):
         self.txt_responsable.setPlaceholderText("Operario o responsable...")
         self.txt_responsable.setMinimumWidth(150)
         
-        self.btn_buscar = QPushButton("🔍 BUSCAR")
-        self.btn_buscar.setMinimumHeight(40)
+        self.btn_buscar = BotonPrimario("🔍 BUSCAR")
         self.btn_buscar.clicked.connect(self.buscar)
-        
-        self.btn_limpiar = QPushButton("🗑️ Limpiar Filtros")
-        self.btn_limpiar.setMinimumHeight(40)
+
+        self.btn_limpiar = BotonSecundario("🗑️ Limpiar Filtros")
         self.btn_limpiar.clicked.connect(self.limpiar_filtros)
         
         fila3.addWidget(lbl_ot)
@@ -121,15 +120,13 @@ class VentanaHistorico(QWidget):
         layout.addWidget(grupo_filtros)
         
         # ========== TABLA ==========
-        self.tabla = QTableWidget()
-        self.tabla.setColumnCount(11)
+        self.tabla = TablaEstandar(0, 11)
         self.tabla.setHorizontalHeaderLabels([
-            "ID", "Fecha", "Tipo", "Origen", "Destino", "Artículo", 
+            "ID", "Fecha", "Tipo", "Origen", "Destino", "Artículo",
             "Cantidad", "Coste", "OT", "Responsable", "Motivo"
         ])
         self.tabla.setColumnHidden(0, True)
-        self.tabla.setSelectionBehavior(QTableWidget.SelectRows)
-        self.tabla.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tabla.setEditTriggers(TablaEstandar.NoEditTriggers)
         
         header = self.tabla.horizontalHeader()
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Fecha
@@ -150,11 +147,11 @@ class VentanaHistorico(QWidget):
         
         self.lbl_resumen = QLabel("")
         self.lbl_resumen.setStyleSheet("font-weight: bold; margin: 5px;")
-        
-        self.btn_exportar = QPushButton("📊 Exportar a Excel")
+
+        self.btn_exportar = BotonPrimario("📊 Exportar a Excel")
         self.btn_exportar.clicked.connect(self.exportar_excel)
-        
-        self.btn_volver = QPushButton("⬅️ Volver")
+
+        self.btn_volver = BotonSecundario("⬅️ Volver")
         self.btn_volver.clicked.connect(self.close)
         
         footer_layout.addWidget(self.lbl_resumen)
