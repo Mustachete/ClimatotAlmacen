@@ -5,9 +5,8 @@ Permite filtrar por fecha, operario, furgoneta y turno.
 """
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QDateEdit,
-    QComboBox, QGroupBox, QMessageBox, QRadioButton, QButtonGroup
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidgetItem, QHeaderView, QDateEdit,
+    QComboBox, QMessageBox, QRadioButton, QButtonGroup
 )
 from PySide6.QtCore import Qt, QDate
 from datetime import datetime, timedelta
@@ -15,6 +14,10 @@ from datetime import datetime, timedelta
 from src.core.db_utils import get_con
 from src.core.logger import logger
 from src.ui.estilos import ESTILO_VENTANA
+from src.ui.widgets_base import (
+    TituloVentana, DescripcionVentana, PanelFiltros, TablaEstandar,
+    Alerta, BotonPrimario, BotonSecundario
+)
 
 
 class VentanaAsignaciones(QWidget):
@@ -35,18 +38,16 @@ class VentanaAsignaciones(QWidget):
         layout.setContentsMargins(15, 15, 15, 15)
 
         # ========== TÍTULO ==========
-        titulo = QLabel("🚚 Historial de Asignaciones de Furgonetas")
-        titulo.setStyleSheet("font-size: 20px; font-weight: bold; margin-bottom: 10px;")
+        titulo = TituloVentana("🚚 Historial de Asignaciones de Furgonetas")
         titulo.setAlignment(Qt.AlignCenter)
         layout.addWidget(titulo)
 
-        desc = QLabel("Consulta el historial completo de asignaciones furgoneta-operario")
-        desc.setStyleSheet("color: #64748b; font-size: 12px; margin-bottom: 10px;")
+        desc = DescripcionVentana("Consulta el historial completo de asignaciones furgoneta-operario")
         desc.setAlignment(Qt.AlignCenter)
         layout.addWidget(desc)
 
         # ========== GRUPO: FILTROS ==========
-        grupo_filtros = QGroupBox("🔍 Filtros de Búsqueda")
+        grupo_filtros = PanelFiltros("🔍 Filtros de Búsqueda")
         filtros_layout = QVBoxLayout()
 
         # Fila 1: Fechas
@@ -124,17 +125,13 @@ class VentanaAsignaciones(QWidget):
         # ========== BOTONES DE ACCIÓN ==========
         botones_layout = QHBoxLayout()
 
-        self.btn_buscar = QPushButton("🔍 Buscar")
-        self.btn_buscar.setMinimumHeight(40)
-        self.btn_buscar.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.btn_buscar = BotonPrimario("🔍 Buscar")
         self.btn_buscar.clicked.connect(self.buscar_asignaciones)
 
-        self.btn_exportar = QPushButton("📄 Exportar CSV")
-        self.btn_exportar.setMinimumHeight(40)
+        self.btn_exportar = BotonSecundario("📄 Exportar CSV")
         self.btn_exportar.clicked.connect(self.exportar_csv)
 
-        self.btn_limpiar = QPushButton("🔄 Limpiar Filtros")
-        self.btn_limpiar.setMinimumHeight(40)
+        self.btn_limpiar = BotonSecundario("🔄 Limpiar Filtros")
         self.btn_limpiar.clicked.connect(self.limpiar_filtros)
 
         botones_layout.addWidget(self.btn_buscar, 2)
@@ -148,8 +145,7 @@ class VentanaAsignaciones(QWidget):
         lbl_resultados.setStyleSheet("font-weight: bold; margin-top: 10px;")
         layout.addWidget(lbl_resultados)
 
-        self.tabla = QTableWidget()
-        self.tabla.setColumnCount(6)
+        self.tabla = TablaEstandar(0, 6)
         self.tabla.setHorizontalHeaderLabels([
             "Fecha", "Turno", "Operario", "Rol", "Furgoneta", "Días"
         ])
@@ -163,20 +159,14 @@ class VentanaAsignaciones(QWidget):
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Días
 
         self.tabla.setMinimumHeight(300)
-        self.tabla.setAlternatingRowColors(True)
         layout.addWidget(self.tabla)
 
         # ========== ESTADÍSTICAS ==========
-        self.lbl_estadisticas = QLabel("")
-        self.lbl_estadisticas.setStyleSheet(
-            "background-color: #eff6ff; padding: 10px; border-radius: 5px; "
-            "color: #1e3a8a; font-weight: bold;"
-        )
+        self.lbl_estadisticas = Alerta("", tipo='info')
         layout.addWidget(self.lbl_estadisticas)
 
         # ========== BOTÓN VOLVER ==========
-        btn_volver = QPushButton("⬅️ Volver")
-        btn_volver.setMinimumHeight(40)
+        btn_volver = BotonSecundario("⬅️ Volver")
         btn_volver.clicked.connect(self.close)
         layout.addWidget(btn_volver)
 
