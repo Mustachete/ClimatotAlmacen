@@ -5,10 +5,9 @@ from PySide6.QtWidgets import (
     QFormLayout, QTextEdit, QHeaderView
 )
 from PySide6.QtCore import Qt
-from pathlib import Path
-import sqlite3
 from src.ui.estilos import ESTILO_DIALOGO, ESTILO_VENTANA
-from src.core.db_utils import get_con
+from src.services import proveedores_service
+from src.core.session_manager import session_manager
 
 # ========================================
 # DIÁLOGO PARA AÑADIR/EDITAR PROVEEDOR
@@ -18,7 +17,8 @@ class DialogoProveedor(QDialog):
         super().__init__(parent)
         self.proveedor_id = proveedor_id
         self.setWindowTitle("✏️ Editar Proveedor" if proveedor_id else "➕ Nuevo Proveedor")
-        self.setFixedSize(500, 400)
+        self.setMinimumSize(450, 350)
+        self.resize(500, 400)
         self.setStyleSheet(ESTILO_DIALOGO)
         
         layout = QVBoxLayout(self)
@@ -59,76 +59,69 @@ class DialogoProveedor(QDialog):
         btn_layout.addWidget(self.btn_guardar)
         btn_layout.addWidget(self.btn_cancelar)
         layout.addLayout(btn_layout)
-        
+
+        # Configurar teclas rápidas
+        self.btn_guardar.setDefault(True)  # Return = Guardar
+        self.btn_cancelar.setShortcut("Esc")  # Esc = Cancelar
+
         # Si estamos editando, cargar datos
         if self.proveedor_id:
             self.cargar_datos()
-    
+
+        # Focus inicial
+        self.txt_nombre.setFocus()
+
     def cargar_datos(self):
         """Carga los datos del proveedor a editar"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute(
-                "SELECT nombre, telefono, contacto, email, notas FROM proveedores WHERE id=?",
-                (self.proveedor_id,)
-            )
-            row = cur.fetchone()
-            con.close()
-            
-            if row:
-                self.txt_nombre.setText(row[0] or "")
-                self.txt_telefono.setText(row[1] or "")
-                self.txt_contacto.setText(row[2] or "")
-                self.txt_email.setText(row[3] or "")
-                self.txt_notas.setPlainText(row[4] or "")
+            proveedor = proveedores_service.obtener_proveedor(self.proveedor_id)
+
+            if proveedor:
+                self.txt_nombre.setText(proveedor['nombre'] or "")
+                self.txt_telefono.setText(proveedor['telefono'] or "")
+                self.txt_contacto.setText(proveedor['contacto'] or "")
+                self.txt_email.setText(proveedor['email'] or "")
+                self.txt_notas.setPlainText(proveedor['notas'] or "")
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar datos:\n{e}")
     
     def guardar(self):
         """Guarda el proveedor (nuevo o editado)"""
         nombre = self.txt_nombre.text().strip()
-        
-        if not nombre:
-            QMessageBox.warning(self, "⚠️ Aviso", "El nombre del proveedor es obligatorio.")
-            self.txt_nombre.setFocus()
+        telefono = self.txt_telefono.text().strip() or None
+        contacto = self.txt_contacto.text().strip() or None
+        email = self.txt_email.text().strip() or None
+        notas = self.txt_notas.toPlainText().strip() or None
+
+        # Llamar al service
+        if self.proveedor_id:
+            # Editar existente
+            exito, mensaje = proveedores_service.actualizar_proveedor(
+                proveedor_id=self.proveedor_id,
+                nombre=nombre,
+                telefono=telefono,
+                contacto=contacto,
+                email=email,
+                notas=notas,
+                usuario=session_manager.get_usuario_actual() or "admin"
+            )
+        else:
+            # Crear nuevo
+            exito, mensaje, proveedor_id = proveedores_service.crear_proveedor(
+                nombre=nombre,
+                telefono=telefono,
+                contacto=contacto,
+                email=email,
+                notas=notas,
+                usuario=session_manager.get_usuario_actual() or "admin"
+            )
+
+        if not exito:
+            QMessageBox.warning(self, "⚠️ Error", mensaje)
             return
-        
-        telefono = self.txt_telefono.text().strip()
-        contacto = self.txt_contacto.text().strip()
-        email = self.txt_email.text().strip()
-        notas = self.txt_notas.toPlainText().strip()
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            
-            if self.proveedor_id:
-                # Editar existente
-                cur.execute("""
-                    UPDATE proveedores 
-                    SET nombre=?, telefono=?, contacto=?, email=?, notas=?
-                    WHERE id=?
-                """, (nombre, telefono, contacto, email, notas, self.proveedor_id))
-                mensaje = f"✅ Proveedor '{nombre}' actualizado correctamente."
-            else:
-                # Crear nuevo
-                cur.execute("""
-                    INSERT INTO proveedores(nombre, telefono, contacto, email, notas)
-                    VALUES(?,?,?,?,?)
-                """, (nombre, telefono, contacto, email, notas))
-                mensaje = f"✅ Proveedor '{nombre}' creado correctamente."
-            
-            con.commit()
-            con.close()
-            
-            QMessageBox.information(self, "✅ Éxito", mensaje)
-            self.accept()
-            
-        except sqlite3.IntegrityError:
-            QMessageBox.warning(self, "⚠️ Aviso", f"Ya existe un proveedor con el nombre '{nombre}'.")
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al guardar:\n{e}")
+
+        QMessageBox.information(self, "✅ Éxito", mensaje)
+        self.accept()
 
 # ========================================
 # VENTANA PRINCIPAL DE PROVEEDORES
@@ -209,36 +202,23 @@ class VentanaProveedores(QWidget):
     def cargar_proveedores(self, filtro=""):
         """Carga los proveedores en la tabla"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            
-            if filtro:
-                cur.execute("""
-                    SELECT id, nombre, telefono, contacto, email, notas 
-                    FROM proveedores 
-                    WHERE nombre LIKE ? 
-                       OR telefono LIKE ?
-                       OR contacto LIKE ?
-                       OR email LIKE ?
-                    ORDER BY nombre
-                """, (f"%{filtro}%", f"%{filtro}%", f"%{filtro}%", f"%{filtro}%"))
-            else:
-                cur.execute("""
-                    SELECT id, nombre, telefono, contacto, email, notas 
-                    FROM proveedores 
-                    ORDER BY nombre
-                """)
-            
-            rows = cur.fetchall()
-            con.close()
-            
-            self.tabla.setRowCount(len(rows))
-            
-            for i, row in enumerate(rows):
-                for j, valor in enumerate(row):
-                    item = QTableWidgetItem(str(valor) if valor else "")
-                    self.tabla.setItem(i, j, item)
-            
+            filtro_texto = filtro if filtro else None
+
+            proveedores = proveedores_service.obtener_proveedores(
+                filtro_texto=filtro_texto,
+                limit=1000
+            )
+
+            self.tabla.setRowCount(len(proveedores))
+
+            for i, prov in enumerate(proveedores):
+                self.tabla.setItem(i, 0, QTableWidgetItem(str(prov['id'])))
+                self.tabla.setItem(i, 1, QTableWidgetItem(prov['nombre'] or ""))
+                self.tabla.setItem(i, 2, QTableWidgetItem(prov['telefono'] or ""))
+                self.tabla.setItem(i, 3, QTableWidgetItem(prov['contacto'] or ""))
+                self.tabla.setItem(i, 4, QTableWidgetItem(prov['email'] or ""))
+                self.tabla.setItem(i, 5, QTableWidgetItem(prov['notas'] or ""))
+
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar proveedores:\n{e}")
             
@@ -275,10 +255,10 @@ class VentanaProveedores(QWidget):
         seleccion = self.tabla.currentRow()
         if seleccion < 0:
             return
-        
+
         proveedor_id = int(self.tabla.item(seleccion, 0).text())
         nombre = self.tabla.item(seleccion, 1).text()
-        
+
         # Confirmar eliminación
         respuesta = QMessageBox.question(
             self,
@@ -288,26 +268,19 @@ class VentanaProveedores(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
+
         if respuesta != QMessageBox.Yes:
             return
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("DELETE FROM proveedores WHERE id=?", (proveedor_id,))
-            con.commit()
-            con.close()
-            
-            QMessageBox.information(self, "✅ Éxito", f"Proveedor '{nombre}' eliminado correctamente.")
-            self.cargar_proveedores()
-            
-        except sqlite3.IntegrityError:
-            QMessageBox.warning(
-                self, 
-                "⚠️ No se puede eliminar",
-                f"El proveedor '{nombre}' tiene artículos asociados.\n\n"
-                "No se puede eliminar un proveedor que está siendo usado."
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al eliminar:\n{e}")
+
+        # Llamar al service
+        exito, mensaje = proveedores_service.eliminar_proveedor(
+            proveedor_id=proveedor_id,
+            usuario=session_manager.get_usuario_actual() or "admin"
+        )
+
+        if not exito:
+            QMessageBox.warning(self, "⚠️ No se puede eliminar", mensaje)
+            return
+
+        QMessageBox.information(self, "✅ Éxito", mensaje)
+        self.cargar_proveedores()

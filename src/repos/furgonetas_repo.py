@@ -14,6 +14,7 @@ from src.core.db_utils import get_connection, execute_query, fetch_all, fetch_on
 SCHEMA_SQL = r"""
 CREATE TABLE IF NOT EXISTS furgonetas (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    numero      INTEGER UNIQUE,
     matricula   TEXT NOT NULL UNIQUE,
     marca       TEXT,
     modelo      TEXT,
@@ -61,13 +62,37 @@ def ensure_schema() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA_SQL)
 
+        # Migración: añadir columna 'numero' si no existe
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(furgonetas)")
+        columns = [col[1] for col in cursor.fetchall()]
+
+        if 'numero' not in columns:
+            # SQLite no permite añadir columna UNIQUE con ALTER TABLE si hay datos
+            # Por eso añadimos sin restricción UNIQUE
+            conn.execute("ALTER TABLE furgonetas ADD COLUMN numero INTEGER")
+            conn.commit()
+            # Nota: La restricción UNIQUE se aplicará en nuevas inserciones mediante la lógica de la aplicación
+
 
 # -----------------------------
 # REPOS CRUD FURGONETAS
 # -----------------------------
 
 def list_furgonetas(include_inactive: bool = True) -> List[Dict[str, Any]]:
-    sql = "SELECT * FROM furgonetas" + ("" if include_inactive else " WHERE activa = 1") + " ORDER BY matricula"
+    """
+    Lista furgonetas desde la tabla almacenes (tipo='furgoneta').
+    IMPORTANTE: No usa la tabla 'furgonetas' antigua.
+    """
+    sql = """
+        SELECT id, nombre as matricula, NULL as marca, NULL as modelo,
+               NULL as anio, 1 as activa, NULL as notas, NULL as numero
+        FROM almacenes
+        WHERE tipo = 'furgoneta'
+    """
+    if not include_inactive:
+        sql += " AND activa = 1"
+    sql += " ORDER BY nombre"
     return fetch_all(sql)
 
 
@@ -75,23 +100,23 @@ def get_furgoneta(fid: int) -> Optional[Dict[str, Any]]:
     return fetch_one("SELECT * FROM furgonetas WHERE id = ?", (fid,))
 
 
-def create_furgoneta(matricula: str, marca: str = None, modelo: str = None, anio: int = None, notas: str = None) -> int:
+def create_furgoneta(matricula: str, marca: str = None, modelo: str = None, anio: int = None, notas: str = None, numero: int = None) -> int:
     with get_connection() as conn:
         cur = conn.execute(
-            "INSERT INTO furgonetas(matricula, marca, modelo, anio, notas) VALUES(?,?,?,?,?)",
-            (matricula.strip().upper(), marca, modelo, anio, notas)
+            "INSERT INTO furgonetas(numero, matricula, marca, modelo, anio, notas) VALUES(?,?,?,?,?,?)",
+            (numero, matricula.strip().upper(), marca, modelo, anio, notas)
         )
         conn.commit()
         return cur.lastrowid
 
 
-def update_furgoneta(fid: int, matricula: str, marca: str = None, modelo: str = None, anio: int = None, activa: int = 1, notas: str = None) -> None:
+def update_furgoneta(fid: int, matricula: str, marca: str = None, modelo: str = None, anio: int = None, activa: int = 1, notas: str = None, numero: int = None) -> None:
     execute_query(
         """
-        UPDATE furgonetas SET matricula=?1, marca=?2, modelo=?3, anio=?4, activa=?5, notas=?6
-        WHERE id = ?7
+        UPDATE furgonetas SET numero=?1, matricula=?2, marca=?3, modelo=?4, anio=?5, activa=?6, notas=?7
+        WHERE id = ?8
         """,
-        (matricula.strip().upper(), marca, modelo, anio, int(bool(activa)), notas, fid)
+        (numero, matricula.strip().upper(), marca, modelo, anio, int(bool(activa)), notas, fid)
     )
 
 

@@ -5,10 +5,9 @@ from PySide6.QtWidgets import (
     QFormLayout, QHeaderView
 )
 from PySide6.QtCore import Qt
-from pathlib import Path
-import sqlite3
 from src.ui.estilos import ESTILO_DIALOGO, ESTILO_VENTANA
-from src.core.db_utils import get_con
+from src.services import familias_service
+from src.core.session_manager import session_manager
 
 # ========================================
 # DIÁLOGO PARA AÑADIR/EDITAR FAMILIA
@@ -18,7 +17,8 @@ class DialogoFamilia(QDialog):
         super().__init__(parent)
         self.familia_id = familia_id
         self.setWindowTitle("✏️ Editar Familia" if familia_id else "➕ Nueva Familia")
-        self.setFixedSize(450, 200)
+        self.setMinimumSize(400, 180)
+        self.resize(450, 200)
         self.setStyleSheet(ESTILO_DIALOGO)
         
         layout = QVBoxLayout(self)
@@ -61,49 +61,34 @@ class DialogoFamilia(QDialog):
     def cargar_datos(self):
         """Carga los datos de la familia a editar"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("SELECT nombre FROM familias WHERE id=?", (self.familia_id,))
-            row = cur.fetchone()
-            con.close()
-            
-            if row:
-                self.txt_nombre.setText(row[0] or "")
+            familia = familias_service.obtener_familia(self.familia_id)
+            if familia:
+                self.txt_nombre.setText(familia['nombre'] or "")
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar datos:\n{e}")
     
     def guardar(self):
         """Guarda la familia (nueva o editada)"""
         nombre = self.txt_nombre.text().strip()
-        
-        if not nombre:
-            QMessageBox.warning(self, "⚠️ Aviso", "El nombre de la familia es obligatorio.")
-            self.txt_nombre.setFocus()
+
+        if self.familia_id:
+            exito, mensaje = familias_service.actualizar_familia(
+                familia_id=self.familia_id,
+                nombre=nombre,
+                usuario=session_manager.get_usuario_actual() or "admin"
+            )
+        else:
+            exito, mensaje, familia_id = familias_service.crear_familia(
+                nombre=nombre,
+                usuario=session_manager.get_usuario_actual() or "admin"
+            )
+
+        if not exito:
+            QMessageBox.warning(self, "⚠️ Error", mensaje)
             return
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            
-            if self.familia_id:
-                # Editar existente
-                cur.execute("UPDATE familias SET nombre=? WHERE id=?", (nombre, self.familia_id))
-                mensaje = f"✅ Familia '{nombre}' actualizada correctamente."
-            else:
-                # Crear nueva
-                cur.execute("INSERT INTO familias(nombre) VALUES(?)", (nombre,))
-                mensaje = f"✅ Familia '{nombre}' creada correctamente."
-            
-            con.commit()
-            con.close()
-            
-            QMessageBox.information(self, "✅ Éxito", mensaje)
-            self.accept()
-            
-        except sqlite3.IntegrityError:
-            QMessageBox.warning(self, "⚠️ Aviso", f"Ya existe una familia con el nombre '{nombre}'.")
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al guardar:\n{e}")
+
+        QMessageBox.information(self, "✅ Éxito", mensaje)
+        self.accept()
 
 # ========================================
 # VENTANA PRINCIPAL DE FAMILIAS
@@ -187,29 +172,15 @@ class VentanaFamilias(QWidget):
     def cargar_familias(self, filtro=""):
         """Carga las familias en la tabla"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            
-            if filtro:
-                cur.execute("""
-                    SELECT id, nombre 
-                    FROM familias 
-                    WHERE nombre LIKE ?
-                    ORDER BY nombre
-                """, (f"%{filtro}%",))
-            else:
-                cur.execute("SELECT id, nombre FROM familias ORDER BY nombre")
-            
-            rows = cur.fetchall()
-            con.close()
-            
-            self.tabla.setRowCount(len(rows))
-            
-            for i, row in enumerate(rows):
-                for j, valor in enumerate(row):
-                    item = QTableWidgetItem(str(valor) if valor else "")
-                    self.tabla.setItem(i, j, item)
-            
+            filtro_texto = filtro if filtro else None
+            familias = familias_service.obtener_familias(filtro_texto=filtro_texto, limit=1000)
+
+            self.tabla.setRowCount(len(familias))
+
+            for i, fam in enumerate(familias):
+                self.tabla.setItem(i, 0, QTableWidgetItem(str(fam['id'])))
+                self.tabla.setItem(i, 1, QTableWidgetItem(fam['nombre'] or ""))
+
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar familias:\n{e}")
     
@@ -246,11 +217,10 @@ class VentanaFamilias(QWidget):
         seleccion = self.tabla.currentRow()
         if seleccion < 0:
             return
-        
+
         familia_id = int(self.tabla.item(seleccion, 0).text())
         nombre = self.tabla.item(seleccion, 1).text()
-        
-        # Confirmar eliminación
+
         respuesta = QMessageBox.question(
             self,
             "⚠️ Confirmar eliminación",
@@ -259,26 +229,18 @@ class VentanaFamilias(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
+
         if respuesta != QMessageBox.Yes:
             return
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("DELETE FROM familias WHERE id=?", (familia_id,))
-            con.commit()
-            con.close()
-            
-            QMessageBox.information(self, "✅ Éxito", f"Familia '{nombre}' eliminada correctamente.")
-            self.cargar_familias()
-            
-        except sqlite3.IntegrityError:
-            QMessageBox.warning(
-                self, 
-                "⚠️ No se puede eliminar",
-                f"La familia '{nombre}' tiene artículos asociados.\n\n"
-                "No se puede eliminar una familia que está siendo usada."
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al eliminar:\n{e}")
+
+        exito, mensaje = familias_service.eliminar_familia(
+            familia_id=familia_id,
+            usuario=session_manager.get_usuario_actual() or "admin"
+        )
+
+        if not exito:
+            QMessageBox.warning(self, "⚠️ No se puede eliminar", mensaje)
+            return
+
+        QMessageBox.information(self, "✅ Éxito", mensaje)
+        self.cargar_familias()

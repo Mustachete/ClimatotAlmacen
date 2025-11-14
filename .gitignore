@@ -49,4 +49,4 @@ temp/
 .python-version
 
 # Exports
-exports/
+exports/docs/token_git.txt

@@ -5,12 +5,15 @@ from PySide6.QtWidgets import (
     QDateEdit, QGroupBox, QHeaderView
 )
 from PySide6.QtCore import Qt, QDate
-from pathlib import Path
-import sqlite3
+from PySide6.QtGui import QShortcut, QKeySequence
 import datetime
 from src.ui.estilos import ESTILO_VENTANA
-from src.ui.widgets_personalizados import SpinBoxClimatot
+from src.ui.widgets_personalizados import SpinBoxClimatot, crear_boton_quitar_centrado
 from src.core.db_utils import get_con
+from src.core.logger import logger
+from src.services import movimientos_service, historial_service
+from src.core.session_manager import session_manager
+from src.repos import movimientos_repo
 
 # ========================================
 # VENTANA DE IMPUTACIÓN
@@ -19,7 +22,8 @@ class VentanaImputacion(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("📝 Imputar Material a Orden de Trabajo")
-        self.setFixedSize(1100, 750)
+        self.setMinimumSize(900, 600)
+        self.resize(1100, 750)
         self.setStyleSheet(ESTILO_VENTANA)
         
         # Lista temporal de artículos
@@ -172,9 +176,55 @@ class VentanaImputacion(QWidget):
         botones_layout.addWidget(self.btn_guardar, 3)
         botones_layout.addWidget(self.btn_cancelar, 1)
         botones_layout.addWidget(self.btn_volver, 1)
-        
+
         layout.addLayout(botones_layout)
-    
+
+        # ========== ATAJOS DE TECLADO ==========
+        self.configurar_atajos_teclado()
+
+        # Mostrar ayuda de atajos
+        ayuda_atajos = QLabel(
+            "⌨️ Atajos: F2=Buscar artículo | F3=Focus OT | F5=Limpiar | "
+            "Ctrl+Enter=Guardar | Esc=Cancelar"
+        )
+        ayuda_atajos.setStyleSheet(
+            "background-color: #f1f5f9; padding: 8px; border-radius: 4px; "
+            "color: #475569; font-size: 11px; margin-top: 5px;"
+        )
+        ayuda_atajos.setAlignment(Qt.AlignCenter)
+        layout.addWidget(ayuda_atajos)
+
+        # Focus inicial
+        self.txt_ot.setFocus()
+
+    def configurar_atajos_teclado(self):
+        """Configura los atajos de teclado para la ventana"""
+        # F2: Focus en búsqueda de artículo
+        shortcut_buscar = QShortcut(QKeySequence("F2"), self)
+        shortcut_buscar.activated.connect(lambda: self.cmb_articulo.setFocus())
+
+        # F3: Focus en campo OT
+        shortcut_ot = QShortcut(QKeySequence("F3"), self)
+        shortcut_ot.activated.connect(lambda: self.txt_ot.setFocus())
+
+        # F5: Limpiar formulario
+        shortcut_limpiar = QShortcut(QKeySequence("F5"), self)
+        shortcut_limpiar.activated.connect(self.limpiar_todo)
+
+        # Ctrl+Return: Guardar imputación
+        shortcut_guardar = QShortcut(QKeySequence("Ctrl+Return"), self)
+        shortcut_guardar.activated.connect(self.guardar_imputacion)
+
+        # Esc: Cancelar/limpiar
+        shortcut_cancelar = QShortcut(QKeySequence("Esc"), self)
+        shortcut_cancelar.activated.connect(self.limpiar_todo)
+
+        # Actualizar tooltips
+        self.btn_guardar.setToolTip("Guardar imputación (Ctrl+Enter)")
+        self.btn_cancelar.setToolTip("Cancelar y limpiar (Esc)")
+        self.cmb_articulo.setToolTip("Buscar artículo (F2)")
+        self.txt_ot.setToolTip("Número de OT (F3)")
+
     def cargar_operarios(self):
         """Carga los operarios activos"""
         try:
@@ -204,25 +254,18 @@ class VentanaImputacion(QWidget):
             self.lbl_furgoneta_asignada.setText("(Seleccione operario)")
             self.lbl_furgoneta_asignada.setStyleSheet("color: #64748b; font-style: italic;")
             self.cmb_articulo.clear()
+            self.furgoneta_id = None
             return
-        
+
         try:
-            con = get_con()
-            cur = con.cursor()
+            from src.services.furgonetas_service import obtener_furgoneta_operario
             fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
-            cur.execute("""
-                SELECT a.nombre, af.furgoneta_id
-                FROM asignaciones_furgoneta af
-                JOIN almacenes a ON af.furgoneta_id = a.id
-                WHERE af.operario_id=? AND af.fecha=?
-            """, (operario_id, fecha_hoy))
-            row = cur.fetchone()
-            con.close()
-            
-            if row:
-                self.lbl_furgoneta_asignada.setText(f"🚚 Furgoneta {row[0]}")
+            furgoneta = obtener_furgoneta_operario(operario_id, fecha_hoy)
+
+            if furgoneta:
+                self.lbl_furgoneta_asignada.setText(f"🚚 Furgoneta {furgoneta['furgoneta_nombre']}")
                 self.lbl_furgoneta_asignada.setStyleSheet("color: #1e3a8a; font-weight: bold;")
-                self.furgoneta_id = row[1]
+                self.furgoneta_id = furgoneta['furgoneta_id']
                 self.cargar_articulos_furgoneta()
             else:
                 self.lbl_furgoneta_asignada.setText("⚠️ Sin furgoneta asignada hoy")
@@ -230,6 +273,7 @@ class VentanaImputacion(QWidget):
                 self.furgoneta_id = None
                 self.cmb_articulo.clear()
         except Exception as e:
+            logger.exception(f"Error al cambiar operario en imputación: {e}")
             QMessageBox.critical(self, "❌ Error", f"Error:\n{e}")
     
     def cargar_articulos_furgoneta(self):
@@ -317,9 +361,10 @@ class VentanaImputacion(QWidget):
             self.tabla_articulos.setItem(i, 2, QTableWidgetItem(art['u_medida']))
             self.tabla_articulos.setItem(i, 3, QTableWidgetItem(f"{art['cantidad']:.2f}"))
             
-            btn_quitar = QPushButton("🗑️ Quitar")
+            # Botón quitar (centrado)
+            contenedor, btn_quitar = crear_boton_quitar_centrado()
             btn_quitar.clicked.connect(lambda checked, idx=i: self.quitar_articulo(idx))
-            self.tabla_articulos.setCellWidget(i, 4, btn_quitar)
+            self.tabla_articulos.setCellWidget(i, 4, contenedor)
     
     def quitar_articulo(self, index):
         """Quita un artículo de la lista"""
@@ -328,54 +373,73 @@ class VentanaImputacion(QWidget):
             self.actualizar_tabla()
     
     def guardar_imputacion(self):
-        """Guarda la imputación en la base de datos"""
+        """Guarda la imputación usando el service"""
         # Validaciones
         operario_id = self.cmb_operario.currentData()
         if not operario_id:
             QMessageBox.warning(self, "⚠️ Aviso", "Debe seleccionar un operario.")
             return
-        
+
         if not self.furgoneta_id:
             QMessageBox.warning(self, "⚠️ Aviso", "El operario no tiene furgoneta asignada.")
             return
-        
+
         if not self.articulos_temp:
             QMessageBox.warning(self, "⚠️ Aviso", "Debe agregar al menos un artículo.")
             return
-        
+
         fecha = self.date_fecha.date().toString("yyyy-MM-dd")
-        ot = self.txt_ot.text().strip() or None
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            
-            # Obtener nombre del operario
-            cur.execute("SELECT nombre FROM operarios WHERE id=?", (operario_id,))
-            operario_nombre = cur.fetchone()[0]
-            
-            # Registrar movimientos de imputación
+        ot = self.txt_ot.text().strip()
+
+        if not ot:
+            QMessageBox.warning(self, "⚠️ Aviso", "El número de OT es obligatorio.")
+            self.txt_ot.setFocus()
+            return
+
+        # Obtener nombre del operario para mostrarlo
+        operario_nombre = self.cmb_operario.currentText()
+
+        # Preparar datos para el service
+        articulos = [
+            {'articulo_id': art['id'], 'cantidad': art['cantidad']}
+            for art in self.articulos_temp
+        ]
+
+        # Llamar al service
+        exito, mensaje, ids_creados = movimientos_service.crear_imputacion_obra(
+            fecha=fecha,
+            operario_id=operario_id,
+            articulos=articulos,
+            ot=ot,
+            motivo=None,
+            usuario=session_manager.get_usuario_actual() or "admin"
+        )
+
+        if not exito:
+            QMessageBox.critical(self, "❌ Error", f"Error al guardar:\n{mensaje}")
+            return
+
+        # Guardar en historial
+        usuario = session_manager.get_usuario_actual()
+        if usuario:
             for art in self.articulos_temp:
-                cur.execute("""
-                    INSERT INTO movimientos(fecha, tipo, origen_id, destino_id, articulo_id, cantidad, ot, responsable)
-                    VALUES(?, 'IMPUTACION', ?, NULL, ?, ?, ?, ?)
-                """, (fecha, self.furgoneta_id, art['id'], art['cantidad'], ot, operario_nombre))
-            
-            con.commit()
-            con.close()
-            
-            ot_texto = f" en OT: {ot}" if ot else ""
-            QMessageBox.information(
-                self,
-                "✅ Éxito",
-                f"Imputación registrada correctamente.\n\n"
-                f"{len(self.articulos_temp)} artículo(s) consumidos por {operario_nombre}{ot_texto}."
-            )
-            
-            self.limpiar_todo()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al guardar:\n{e}")
+                historial_service.guardar_en_historial(
+                    usuario=usuario,
+                    tipo_operacion='imputacion',
+                    articulo_id=art['id'],
+                    articulo_nombre=art['nombre'],
+                    cantidad=art['cantidad'],
+                    u_medida=art['u_medida'],
+                    datos_adicionales={'ot': ot, 'operario': operario_nombre}
+                )
+
+        QMessageBox.information(
+            self,
+            "✅ Éxito",
+            f"Imputación registrada correctamente.\n\n{mensaje}"
+        )
+
+        self.limpiar_todo()
     
     def limpiar_todo(self):
         """Limpia todos los campos"""

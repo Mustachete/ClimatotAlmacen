@@ -21,12 +21,15 @@ python app.py
 
 ## 📁 Estructura del Proyecto
 
-- `src/core/` - Módulos centrales (BD, configuración)
+- `src/core/` - Módulos centrales (BD, configuración, logging, error handling)
+- `src/repos/` - Repositorios (capa de acceso a datos, SQL puro)
+- `src/services/` - Servicios (capa de lógica de negocio)
 - `src/ui/` - Componentes de interfaz
-- `src/ventanas/` - Ventanas de la aplicación
+- `src/ventanas/` - Ventanas de la aplicación (capa de presentación)
 - `src/dialogs/` - Diálogos auxiliares
-- `scripts/` - Scripts de utilidad
-- `db/` - Base de datos SQLite
+- `scripts/` - Scripts de utilidad y backups
+- `db/` - Base de datos SQLite y backups
+- `logs/` - Archivos de log rotativos
 - `config/` - Archivos de configuración
 - `docs/` - Documentación
 
@@ -34,12 +37,22 @@ python app.py
 
 Ver carpeta `docs/` para documentación completa.
 
-## 🔐 Acceso por Defecto
+## 🔐 Primer Acceso
 
-- Usuario: `admin`
-- Contraseña: `admin`
+**Crear usuario administrador:**
+```bash
+python scripts/init_admin.py
+```
 
-⚠️ **IMPORTANTE:** Cambiar contraseña tras primer login.
+Este script interactivo te guiará para crear el primer usuario administrador del sistema.
+
+**Sistema de Autenticación:**
+- Roles disponibles: `admin`, `almacen`, `operario`
+- Contraseñas hasheadas con SHA256
+- Sesiones con auditoría completa
+- Trazabilidad de todas las operaciones por usuario
+
+Ver documentación completa: [docs/SISTEMA_AUTENTICACION.md](docs/SISTEMA_AUTENTICACION.md)
 
 ## 🛠️ Tecnologías
 
@@ -48,3 +61,33 @@ Ver carpeta `docs/` para documentación completa.
 - SQLite3
 - pandas
 - openpyxl
+
+## ✨ Características Implementadas
+
+### ✅ Fase 1: Fundamentos - COMPLETADO
+- ✅ Sistema de Logging estructurado con rotación automática
+- ✅ Backups automáticos de base de datos (comprimidos con hash SHA256)
+- ✅ Arquitectura en capas (Repositorio → Service → UI)
+
+### ✅ Módulos Operativos Refactorizados - COMPLETADO
+- ✅ **Movimientos** (repo + service + ventana) - Traspasos almacén-furgoneta
+- ✅ **Material Perdido** (usando movimientos_service)
+- ✅ **Devolución a Proveedor** (usando movimientos_service)
+- ✅ **Recepción de Albaranes** (usando movimientos_service)
+- ✅ **Imputación a OT** (usando movimientos_service)
+- ✅ **Pedido Ideal** (repo + service + ventana)
+- ✅ **Consumos** (repo + service + ventana)
+- ✅ **Furgonetas** (repo + service + ventana)
+
+### 📊 Estado del Proyecto
+- **Tamaño del proyecto:** 4.3 MB (reducido desde 279 MB)
+- **Módulos operativos refactorizados:** 8/8 (100%)
+- **Líneas de código organizadas:** +2,000
+- **Arquitectura:** 3 capas implementadas
+
+### 🚀 Próximas Fases
+- ⏳ Refactorizar módulos maestros (Artículos, Proveedores, etc.)
+- ⏳ Refactorizar módulo de Inventarios
+- ⏳ Sistema de Pedidos completo con estados
+- ⏳ Coste Medio Ponderado (CMP)
+- ⏳ Sistema de Anulaciones con auditoría

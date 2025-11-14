@@ -36,7 +36,17 @@ class VentanaStock(QWidget):
         desc.setStyleSheet("color: #64748b; font-size: 12px; margin-bottom: 10px;")
         desc.setAlignment(Qt.AlignCenter)
         layout.addWidget(desc)
-        
+
+        # ========== PANEL DE ALERTAS ==========
+        self.panel_alertas = QLabel("")
+        self.panel_alertas.setStyleSheet(
+            "background-color: #fef2f2; border: 2px solid #dc2626; "
+            "border-radius: 5px; padding: 10px; color: #dc2626; font-weight: bold;"
+        )
+        self.panel_alertas.setAlignment(Qt.AlignCenter)
+        self.panel_alertas.setVisible(False)  # Oculto por defecto
+        layout.addWidget(self.panel_alertas)
+
         # ========== FILTROS ==========
         filtros_layout = QHBoxLayout()
         
@@ -278,6 +288,16 @@ class VentanaStock(QWidget):
                 f"📦 Total registros: {total_articulos} | "
                 f"⚠️ Alertas (stock bajo): {alertas}"
             )
+
+            # Mostrar panel de alertas si hay artículos críticos
+            if alertas > 0 and not solo_alertas:
+                self.panel_alertas.setText(
+                    f"⚠️ ATENCIÓN: {alertas} artículo(s) con stock bajo el mínimo. "
+                    f"Marca 'Solo alertas' para ver solo estos artículos."
+                )
+                self.panel_alertas.setVisible(True)
+            else:
+                self.panel_alertas.setVisible(False)
             
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar stock:\n{e}")

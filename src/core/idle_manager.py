@@ -1,14 +1,16 @@
-# idle_manager.py - Gestor Global de Inactividad (CORREGIDO)
+# idle_manager.py - Gestor Global de Inactividad
 """
 Sistema centralizado para gestionar el timeout de inactividad.
 Detecta actividad en TODAS las ventanas de la aplicación.
 
-CORRECCIONES:
+CARACTERÍSTICAS:
 1. ✅ Bucle infinito al cerrar sesión SOLUCIONADO
 2. ✅ Solo cierra por inactividad real (no por uso activo)
 3. ✅ Aviso 5 minutos antes del cierre
 4. ✅ Reinicio automático con cualquier actividad
 5. ✅ Cierre limpio de todas las ventanas
+6. ✅ El diálogo de advertencia se cierra automáticamente al timeout
+7. ✅ Diálogo NO bloqueante para permitir cierre forzado
 """
 from PySide6.QtCore import QObject, QTimer, QEvent
 from PySide6.QtWidgets import QMessageBox, QApplication
@@ -25,25 +27,26 @@ class IdleManager(QObject):
     
     def __init__(self, timeout_minutes=20, warning_minutes=5):
         super().__init__()
-        
+
         # Configuración
         self.timeout_seconds = timeout_minutes * 60  # 20 minutos = 1200 segundos
         self.warning_seconds = warning_minutes * 60   # 5 minutos = 300 segundos
-        
+
         # Control de tiempo
         self.last_activity = time.time()
         self.warning_shown = False
         self.is_active = False
         self.logout_in_progress = False  # ← NUEVO: Evita bucle infinito
-        
+
         # Timer que revisa cada segundo
         self.timer = QTimer()
         self.timer.timeout.connect(self._check_idle)
         self.timer.setInterval(1000)  # Cada 1 segundo
-        
+
         # Referencia a las ventanas
         self.login_window = None
         self.main_window = None
+        self.warning_dialog = None  # ← NUEVO: Referencia al diálogo de advertencia
     
     def start(self, login_window, main_window):
         """
@@ -139,48 +142,64 @@ class IdleManager(QObject):
         Muestra aviso de que quedan 5 minutos.
         Si el usuario hace clic en OK, reinicia el contador automáticamente.
         """
-        # ✅ CORRECCIÓN: Pausar el timer mientras se muestra el aviso
-        self.timer.stop()
-        
+        # ✅ CORRECCIÓN: NO pausar el timer - debe seguir ejecutándose para forzar cierre
+
         # Crear mensaje de aviso
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Warning)
-        msg.setWindowTitle("⏱️ Aviso de Inactividad")
-        msg.setText(
+        self.warning_dialog = QMessageBox()
+        self.warning_dialog.setIcon(QMessageBox.Warning)
+        self.warning_dialog.setWindowTitle("⏱️ Aviso de Inactividad")
+        self.warning_dialog.setText(
             "⚠️ Tu sesión se cerrará en 5 minutos por inactividad.\n\n"
             "Si estás trabajando, haz clic en OK para continuar.\n"
             "Si no haces nada, la sesión se cerrará automáticamente."
         )
-        msg.setStandardButtons(QMessageBox.Ok)
-        msg.setDefaultButton(QMessageBox.Ok)
-        
-        # Mostrar el mensaje
-        msg.exec()
-        
-        # ✅ CORRECCIÓN: Al hacer clic en OK, resetear actividad manualmente
-        self.last_activity = time.time()
-        self.warning_shown = False
-        
-        # Reiniciar el timer
-        if self.is_active:
-            self.timer.start()
-    
+        self.warning_dialog.setStandardButtons(QMessageBox.Ok)
+        self.warning_dialog.setDefaultButton(QMessageBox.Ok)
+
+        # Mostrar el mensaje de forma NO bloqueante
+        self.warning_dialog.show()
+
+        # Conectar el botón OK para resetear actividad
+        self.warning_dialog.finished.connect(self._on_warning_closed)
+
+    def _on_warning_closed(self, result):
+        """
+        Maneja el cierre del diálogo de advertencia.
+        Si el usuario hizo clic en OK, resetea la actividad.
+        """
+        if result == QMessageBox.Ok:
+            # Usuario confirmó que está trabajando - resetear actividad
+            self.last_activity = time.time()
+            self.warning_shown = False
+
+        # Limpiar la referencia
+        self.warning_dialog = None
+
     def _force_logout(self):
         """
         Cierra la sesión forzosamente:
         1. Detiene el timer para evitar bucle
-        2. Cierra TODAS las ventanas abiertas
+        2. Cierra TODAS las ventanas abiertas (incluyendo el diálogo de advertencia)
         3. Muestra mensaje de timeout UNA SOLA VEZ
         4. Vuelve al login
         """
         # ✅ CORRECCIÓN: Flag para evitar bucle infinito
         if self.logout_in_progress:
             return
-        
+
         self.logout_in_progress = True
-        
+
         # Detener el timer PRIMERO
         self.stop()
+
+        # ✅ CORRECCIÓN: Cerrar el diálogo de advertencia si está abierto
+        if self.warning_dialog and self.warning_dialog.isVisible():
+            try:
+                self.warning_dialog.close()
+                self.warning_dialog = None
+            except Exception as e:
+                from src.core.logger import logger
+                logger.warning(f"Error al cerrar diálogo de advertencia: {e}")
         
         # ✅ CORRECCIÓN: Cerrar TODAS las ventanas ANTES del mensaje
         all_windows = QApplication.topLevelWidgets()
@@ -190,15 +209,18 @@ class IdleManager(QObject):
                     # Cerrar sin confirmación
                     window.setAttribute(128, True)  # Qt.WA_DeleteOnClose
                     window.close()
-                except:
-                    pass
-        
+                except Exception as e:
+                    # Log warning pero continuar - la ventana podría estar ya cerrada
+                    from src.core.logger import logger
+                    logger.warning(f"Error al cerrar ventana durante logout por inactividad: {e}")
+
         # Cerrar el menú principal explícitamente
         if self.main_window and self.main_window.isVisible():
             try:
                 self.main_window.close()
-            except:
-                pass
+            except Exception as e:
+                from src.core.logger import logger
+                logger.warning(f"Error al cerrar ventana principal durante logout: {e}")
         
         # ✅ CORRECCIÓN: Mensaje DESPUÉS de cerrar ventanas
         msg = QMessageBox(self.login_window)  # ← Padre: login_window

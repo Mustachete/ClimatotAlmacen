@@ -5,10 +5,9 @@ from PySide6.QtWidgets import (
     QFormLayout, QHeaderView
 )
 from PySide6.QtCore import Qt
-from pathlib import Path
-import sqlite3
 from src.ui.estilos import ESTILO_DIALOGO, ESTILO_VENTANA
-from src.core.db_utils import get_con
+from src.services import ubicaciones_service
+from src.core.session_manager import session_manager
 
 # ========================================
 # DIÁLOGO PARA AÑADIR/EDITAR UBICACIÓN
@@ -18,7 +17,8 @@ class DialogoUbicacion(QDialog):
         super().__init__(parent)
         self.ubicacion_id = ubicacion_id
         self.setWindowTitle("✏️ Editar Ubicación" if ubicacion_id else "➕ Nueva Ubicación")
-        self.setFixedSize(450, 200)
+        self.setMinimumSize(400, 180)
+        self.resize(450, 200)
         self.setStyleSheet(ESTILO_DIALOGO)
         
         layout = QVBoxLayout(self)
@@ -61,49 +61,34 @@ class DialogoUbicacion(QDialog):
     def cargar_datos(self):
         """Carga los datos de la ubicación a editar"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("SELECT nombre FROM ubicaciones WHERE id=?", (self.ubicacion_id,))
-            row = cur.fetchone()
-            con.close()
-            
-            if row:
-                self.txt_nombre.setText(row[0] or "")
+            ubicacion = ubicaciones_service.obtener_ubicacion(self.ubicacion_id)
+            if ubicacion:
+                self.txt_nombre.setText(ubicacion['nombre'] or "")
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar datos:\n{e}")
     
     def guardar(self):
         """Guarda la ubicación (nueva o editada)"""
         nombre = self.txt_nombre.text().strip()
-        
-        if not nombre:
-            QMessageBox.warning(self, "⚠️ Aviso", "El nombre de la ubicación es obligatorio.")
-            self.txt_nombre.setFocus()
+
+        if self.ubicacion_id:
+            exito, mensaje = ubicaciones_service.actualizar_ubicacion(
+                ubicacion_id=self.ubicacion_id,
+                nombre=nombre,
+                usuario=session_manager.get_usuario_actual() or "admin"
+            )
+        else:
+            exito, mensaje, ubicacion_id = ubicaciones_service.crear_ubicacion(
+                nombre=nombre,
+                usuario=session_manager.get_usuario_actual() or "admin"
+            )
+
+        if not exito:
+            QMessageBox.warning(self, "⚠️ Error", mensaje)
             return
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            
-            if self.ubicacion_id:
-                # Editar existente
-                cur.execute("UPDATE ubicaciones SET nombre=? WHERE id=?", (nombre, self.ubicacion_id))
-                mensaje = f"✅ Ubicación '{nombre}' actualizada correctamente."
-            else:
-                # Crear nueva
-                cur.execute("INSERT INTO ubicaciones(nombre) VALUES(?)", (nombre,))
-                mensaje = f"✅ Ubicación '{nombre}' creada correctamente."
-            
-            con.commit()
-            con.close()
-            
-            QMessageBox.information(self, "✅ Éxito", mensaje)
-            self.accept()
-            
-        except sqlite3.IntegrityError:
-            QMessageBox.warning(self, "⚠️ Aviso", f"Ya existe una ubicación con el nombre '{nombre}'.")
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al guardar:\n{e}")
+
+        QMessageBox.information(self, "✅ Éxito", mensaje)
+        self.accept()
 
 # ========================================
 # VENTANA PRINCIPAL DE UBICACIONES
@@ -187,29 +172,15 @@ class VentanaUbicaciones(QWidget):
     def cargar_ubicaciones(self, filtro=""):
         """Carga las ubicaciones en la tabla"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            
-            if filtro:
-                cur.execute("""
-                    SELECT id, nombre 
-                    FROM ubicaciones 
-                    WHERE nombre LIKE ?
-                    ORDER BY nombre
-                """, (f"%{filtro}%",))
-            else:
-                cur.execute("SELECT id, nombre FROM ubicaciones ORDER BY nombre")
-            
-            rows = cur.fetchall()
-            con.close()
-            
-            self.tabla.setRowCount(len(rows))
-            
-            for i, row in enumerate(rows):
-                for j, valor in enumerate(row):
-                    item = QTableWidgetItem(str(valor) if valor else "")
-                    self.tabla.setItem(i, j, item)
-            
+            filtro_texto = filtro if filtro else None
+            ubicaciones = ubicaciones_service.obtener_ubicaciones(filtro_texto=filtro_texto, limit=1000)
+
+            self.tabla.setRowCount(len(ubicaciones))
+
+            for i, ubi in enumerate(ubicaciones):
+                self.tabla.setItem(i, 0, QTableWidgetItem(str(ubi['id'])))
+                self.tabla.setItem(i, 1, QTableWidgetItem(ubi['nombre'] or ""))
+
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar ubicaciones:\n{e}")
     
@@ -246,11 +217,10 @@ class VentanaUbicaciones(QWidget):
         seleccion = self.tabla.currentRow()
         if seleccion < 0:
             return
-        
+
         ubicacion_id = int(self.tabla.item(seleccion, 0).text())
         nombre = self.tabla.item(seleccion, 1).text()
-        
-        # Confirmar eliminación
+
         respuesta = QMessageBox.question(
             self,
             "⚠️ Confirmar eliminación",
@@ -259,26 +229,18 @@ class VentanaUbicaciones(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
+
         if respuesta != QMessageBox.Yes:
             return
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("DELETE FROM ubicaciones WHERE id=?", (ubicacion_id,))
-            con.commit()
-            con.close()
-            
-            QMessageBox.information(self, "✅ Éxito", f"Ubicación '{nombre}' eliminada correctamente.")
-            self.cargar_ubicaciones()
-            
-        except sqlite3.IntegrityError:
-            QMessageBox.warning(
-                self, 
-                "⚠️ No se puede eliminar",
-                f"La ubicación '{nombre}' tiene artículos asociados.\n\n"
-                "No se puede eliminar una ubicación que está siendo usada."
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al eliminar:\n{e}")
+
+        exito, mensaje = ubicaciones_service.eliminar_ubicacion(
+            ubicacion_id=ubicacion_id,
+            usuario=session_manager.get_usuario_actual() or "admin"
+        )
+
+        if not exito:
+            QMessageBox.warning(self, "⚠️ No se puede eliminar", mensaje)
+            return
+
+        QMessageBox.information(self, "✅ Éxito", mensaje)
+        self.cargar_ubicaciones()

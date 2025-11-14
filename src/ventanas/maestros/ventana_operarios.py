@@ -5,10 +5,9 @@ from PySide6.QtWidgets import (
     QFormLayout, QHeaderView, QComboBox, QCheckBox
 )
 from PySide6.QtCore import Qt
-from pathlib import Path
-import sqlite3
 from src.ui.estilos import ESTILO_DIALOGO, ESTILO_VENTANA
-from src.core.db_utils import get_con
+from src.services import operarios_service
+from src.core.session_manager import session_manager
 
 # ========================================
 # DIÁLOGO PARA AÑADIR/EDITAR OPERARIO
@@ -18,7 +17,8 @@ class DialogoOperario(QDialog):
         super().__init__(parent)
         self.operario_id = operario_id
         self.setWindowTitle("✏️ Editar Operario" if operario_id else "➕ Nuevo Operario")
-        self.setFixedSize(500, 280)
+        self.setMinimumSize(450, 250)
+        self.resize(500, 280)
         self.setStyleSheet(ESTILO_DIALOGO)
         
         layout = QVBoxLayout(self)
@@ -72,22 +72,15 @@ class DialogoOperario(QDialog):
     def cargar_datos(self):
         """Carga los datos del operario a editar"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute(
-                "SELECT nombre, rol_operario, activo FROM operarios WHERE id=?",
-                (self.operario_id,)
-            )
-            row = cur.fetchone()
-            con.close()
-            
-            if row:
-                self.txt_nombre.setText(row[0] or "")
+            operario = operarios_service.obtener_operario(self.operario_id)
+
+            if operario:
+                self.txt_nombre.setText(operario['nombre'] or "")
                 # Buscar el índice del rol
-                idx = self.cmb_rol.findText(row[1])
+                idx = self.cmb_rol.findText(operario['rol_operario'])
                 if idx >= 0:
                     self.cmb_rol.setCurrentIndex(idx)
-                self.chk_activo.setChecked(row[2] == 1)
+                self.chk_activo.setChecked(operario['activo'] == 1)
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar datos:\n{e}")
     
@@ -95,42 +88,33 @@ class DialogoOperario(QDialog):
         """Guarda el operario (nuevo o editado)"""
         nombre = self.txt_nombre.text().strip()
         rol = self.cmb_rol.currentText()
-        activo = 1 if self.chk_activo.isChecked() else 0
-        
-        if not nombre:
-            QMessageBox.warning(self, "⚠️ Aviso", "El nombre del operario es obligatorio.")
-            self.txt_nombre.setFocus()
+        activo = self.chk_activo.isChecked()
+
+        # Llamar al service
+        if self.operario_id:
+            # Editar existente
+            exito, mensaje = operarios_service.actualizar_operario(
+                operario_id=self.operario_id,
+                nombre=nombre,
+                rol_operario=rol,
+                activo=activo,
+                usuario=session_manager.get_usuario_actual() or "admin"
+            )
+        else:
+            # Crear nuevo
+            exito, mensaje, operario_id = operarios_service.crear_operario(
+                nombre=nombre,
+                rol_operario=rol,
+                activo=activo,
+                usuario=session_manager.get_usuario_actual() or "admin"
+            )
+
+        if not exito:
+            QMessageBox.warning(self, "⚠️ Error", mensaje)
             return
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            
-            if self.operario_id:
-                # Editar existente
-                cur.execute(
-                    "UPDATE operarios SET nombre=?, rol_operario=?, activo=? WHERE id=?",
-                    (nombre, rol, activo, self.operario_id)
-                )
-                mensaje = f"✅ Operario '{nombre}' actualizado correctamente."
-            else:
-                # Crear nuevo
-                cur.execute(
-                    "INSERT INTO operarios(nombre, rol_operario, activo) VALUES(?,?,?)",
-                    (nombre, rol, activo)
-                )
-                mensaje = f"✅ Operario '{nombre}' creado correctamente."
-            
-            con.commit()
-            con.close()
-            
-            QMessageBox.information(self, "✅ Éxito", mensaje)
-            self.accept()
-            
-        except sqlite3.IntegrityError:
-            QMessageBox.warning(self, "⚠️ Aviso", f"Ya existe un operario con el nombre '{nombre}'.")
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al guardar:\n{e}")
+
+        QMessageBox.information(self, "✅ Éxito", mensaje)
+        self.accept()
 
 # ========================================
 # VENTANA PRINCIPAL DE OPERARIOS
@@ -223,50 +207,47 @@ class VentanaOperarios(QWidget):
     def cargar_operarios(self, filtro_texto="", filtro_tipo="Todos"):
         """Carga los operarios en la tabla"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            
-            # Construir query según filtros
-            query = "SELECT id, nombre, rol_operario, activo FROM operarios WHERE 1=1"
-            params = []
-            
-            if filtro_texto:
-                query += " AND nombre LIKE ?"
-                params.append(f"%{filtro_texto}%")
-            
+            # Preparar filtros
+            filtro_texto_param = filtro_texto if filtro_texto else None
+
+            solo_rol = None
             if filtro_tipo == "Solo Oficiales":
-                query += " AND rol_operario='oficial'"
+                solo_rol = "oficial"
             elif filtro_tipo == "Solo Ayudantes":
-                query += " AND rol_operario='ayudante'"
-            elif filtro_tipo == "Solo Activos":
-                query += " AND activo=1"
+                solo_rol = "ayudante"
+
+            solo_activos = None
+            if filtro_tipo == "Solo Activos":
+                solo_activos = True
             elif filtro_tipo == "Solo Inactivos":
-                query += " AND activo=0"
-            
-            query += " ORDER BY rol_operario DESC, nombre"
-            
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            con.close()
-            
-            self.tabla.setRowCount(len(rows))
-            
-            for i, row in enumerate(rows):
+                solo_activos = False
+
+            # Obtener operarios
+            operarios = operarios_service.obtener_operarios(
+                filtro_texto=filtro_texto_param,
+                solo_rol=solo_rol,
+                solo_activos=solo_activos,
+                limit=1000
+            )
+
+            self.tabla.setRowCount(len(operarios))
+
+            for i, oper in enumerate(operarios):
                 # ID
-                self.tabla.setItem(i, 0, QTableWidgetItem(str(row[0])))
+                self.tabla.setItem(i, 0, QTableWidgetItem(str(oper['id'])))
                 # Nombre
-                self.tabla.setItem(i, 1, QTableWidgetItem(row[1]))
+                self.tabla.setItem(i, 1, QTableWidgetItem(oper['nombre']))
                 # Rol con emoji
-                rol_texto = "👷 Oficial" if row[2] == "oficial" else "🔨 Ayudante"
+                rol_texto = "👷 Oficial" if oper['rol_operario'] == "oficial" else "🔨 Ayudante"
                 item_rol = QTableWidgetItem(rol_texto)
                 self.tabla.setItem(i, 2, item_rol)
                 # Estado
-                estado_texto = "✅ Activo" if row[3] == 1 else "❌ Inactivo"
+                estado_texto = "✅ Activo" if oper['activo'] == 1 else "❌ Inactivo"
                 item_estado = QTableWidgetItem(estado_texto)
-                if row[3] == 0:
+                if oper['activo'] == 0:
                     item_estado.setForeground(Qt.gray)
                 self.tabla.setItem(i, 3, item_estado)
-            
+
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar operarios:\n{e}")
     
@@ -304,10 +285,10 @@ class VentanaOperarios(QWidget):
         seleccion = self.tabla.currentRow()
         if seleccion < 0:
             return
-        
+
         operario_id = int(self.tabla.item(seleccion, 0).text())
         nombre = self.tabla.item(seleccion, 1).text()
-        
+
         # Confirmar eliminación
         respuesta = QMessageBox.question(
             self,
@@ -318,26 +299,19 @@ class VentanaOperarios(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
+
         if respuesta != QMessageBox.Yes:
             return
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("DELETE FROM operarios WHERE id=?", (operario_id,))
-            con.commit()
-            con.close()
-            
-            QMessageBox.information(self, "✅ Éxito", f"Operario '{nombre}' eliminado correctamente.")
-            self.cargar_operarios()
-            
-        except sqlite3.IntegrityError:
-            QMessageBox.warning(
-                self, 
-                "⚠️ No se puede eliminar",
-                f"El operario '{nombre}' tiene movimientos o asignaciones asociadas.\n\n"
-                "En lugar de eliminarlo, puede marcarlo como 'Inactivo' editándolo."
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al eliminar:\n{e}")
+
+        # Llamar al service
+        exito, mensaje = operarios_service.eliminar_operario(
+            operario_id=operario_id,
+            usuario=session_manager.get_usuario_actual() or "admin"
+        )
+
+        if not exito:
+            QMessageBox.warning(self, "⚠️ No se puede eliminar", mensaje)
+            return
+
+        QMessageBox.information(self, "✅ Éxito", mensaje)
+        self.cargar_operarios()

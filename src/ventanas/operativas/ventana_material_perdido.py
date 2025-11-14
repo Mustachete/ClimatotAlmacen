@@ -5,12 +5,15 @@ from PySide6.QtWidgets import (
     QDateEdit, QGroupBox, QHeaderView, QTextEdit
 )
 from PySide6.QtCore import Qt, QDate
-from pathlib import Path
-import sqlite3
+from PySide6.QtGui import QShortcut, QKeySequence
 import datetime
 from src.ui.estilos import ESTILO_VENTANA
 from src.ui.widgets_personalizados import SpinBoxClimatot
 from src.core.db_utils import get_con
+from src.core.logger import logger
+from src.services import movimientos_service, historial_service
+from src.core.session_manager import session_manager
+from src.repos import movimientos_repo
 
 # ========================================
 # VENTANA DE MATERIAL PERDIDO
@@ -19,7 +22,8 @@ class VentanaMaterialPerdido(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("⚠️ Registro de Material Perdido")
-        self.setFixedSize(900, 700)
+        self.setMinimumSize(750, 550)
+        self.resize(900, 700)
         self.setStyleSheet(ESTILO_VENTANA)
         
         layout = QVBoxLayout(self)
@@ -175,116 +179,173 @@ class VentanaMaterialPerdido(QWidget):
         botones_layout.addWidget(self.btn_guardar, 2)
         botones_layout.addWidget(self.btn_cancelar, 1)
         botones_layout.addWidget(self.btn_volver, 1)
-        
+
         layout.addLayout(botones_layout)
-    
+
+        # ========== ATAJOS DE TECLADO ==========
+        self.configurar_atajos_teclado()
+
+        # Mostrar ayuda de atajos
+        ayuda_atajos = QLabel(
+            "⌨️ Atajos: F2=Buscar artículo | F4=Motivo | F5=Limpiar | "
+            "Ctrl+Enter=Guardar | Esc=Cancelar"
+        )
+        ayuda_atajos.setStyleSheet(
+            "background-color: #f1f5f9; padding: 8px; border-radius: 4px; "
+            "color: #475569; font-size: 11px; margin-top: 5px;"
+        )
+        ayuda_atajos.setAlignment(Qt.AlignCenter)
+        layout.addWidget(ayuda_atajos)
+
+        # Focus inicial
+        self.cmb_articulo.setFocus()
+
+    def configurar_atajos_teclado(self):
+        """Configura los atajos de teclado para la ventana"""
+        # F2: Focus en búsqueda de artículo
+        shortcut_buscar = QShortcut(QKeySequence("F2"), self)
+        shortcut_buscar.activated.connect(lambda: self.cmb_articulo.setFocus())
+
+        # F4: Focus en motivo
+        shortcut_motivo = QShortcut(QKeySequence("F4"), self)
+        shortcut_motivo.activated.connect(lambda: self.txt_motivo.setFocus())
+
+        # F5: Limpiar formulario
+        shortcut_limpiar = QShortcut(QKeySequence("F5"), self)
+        shortcut_limpiar.activated.connect(self.limpiar)
+
+        # Ctrl+Return: Guardar registro
+        shortcut_guardar = QShortcut(QKeySequence("Ctrl+Return"), self)
+        shortcut_guardar.activated.connect(self.guardar_perdida)
+
+        # Esc: Cancelar/limpiar
+        shortcut_cancelar = QShortcut(QKeySequence("Esc"), self)
+        shortcut_cancelar.activated.connect(self.limpiar)
+
+        # Actualizar tooltips
+        self.btn_guardar.setToolTip("Guardar registro (Ctrl+Enter)")
+        self.btn_cancelar.setToolTip("Cancelar y limpiar (Esc)")
+        self.cmb_articulo.setToolTip("Buscar artículo (F2)")
+        self.txt_motivo.setToolTip("Motivo de pérdida (F4)")
+
     def cargar_operarios(self):
         """Carga los operarios activos"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("""
-                SELECT id, nombre, rol_operario 
-                FROM operarios 
-                WHERE activo=1 
-                ORDER BY rol_operario DESC, nombre
-            """)
-            rows = cur.fetchall()
-            con.close()
-            
+            operarios = movimientos_repo.get_operarios_activos()
+
             self.cmb_operario.addItem("(Seleccione operario)", None)
-            for row in rows:
-                emoji = "👷" if row[2] == "oficial" else "🔨"
-                texto = f"{emoji} {row[1]} ({row[2]})"
-                self.cmb_operario.addItem(texto, row[0])
+            for op in operarios:
+                emoji = "👷" if op['rol_operario'] == "oficial" else "🔨"
+                texto = f"{emoji} {op['nombre']} ({op['rol_operario']})"
+                self.cmb_operario.addItem(texto, op['id'])
         except Exception as e:
+            logger.error(f"Error al cargar operarios: {e}")
             QMessageBox.critical(self, "❌ Error", f"Error al cargar operarios:\n{e}")
     
     def cambio_operario(self):
-        """Al cambiar de operario, busca su furgoneta"""
+        """Al cambiar de operario, busca su furgoneta y carga artículos de la furgoneta"""
         operario_id = self.cmb_operario.currentData()
         if not operario_id:
             self.lbl_furgoneta_asignada.setText("(Seleccione operario)")
             self.lbl_furgoneta_asignada.setStyleSheet("color: #64748b; font-style: italic;")
             self.furgoneta_id = None
+            self.cmb_articulo.clear()
+            self.cmb_articulo.addItem("(Seleccione operario primero)", None)
             return
-        
+
         try:
-            con = get_con()
-            cur = con.cursor()
+            from src.services.furgonetas_service import obtener_furgoneta_operario
             fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
-            cur.execute("""
-                SELECT a.nombre, af.furgoneta_id
-                FROM asignaciones_furgoneta af
-                JOIN almacenes a ON af.furgoneta_id = a.id
-                WHERE af.operario_id=? AND af.fecha=?
-            """, (operario_id, fecha_hoy))
-            row = cur.fetchone()
-            con.close()
-            
-            if row:
-                self.lbl_furgoneta_asignada.setText(f"🚚 Furgoneta {row[0]}")
+            furgoneta = obtener_furgoneta_operario(operario_id, fecha_hoy)
+
+            if furgoneta:
+                self.lbl_furgoneta_asignada.setText(f"🚚 Furgoneta {furgoneta['furgoneta_nombre']}")
                 self.lbl_furgoneta_asignada.setStyleSheet("color: #1e3a8a; font-weight: bold;")
-                self.furgoneta_id = row[1]
+                self.furgoneta_id = furgoneta['furgoneta_id']
+                self.cargar_articulos_furgoneta()
             else:
                 self.lbl_furgoneta_asignada.setText("⚠️ Sin furgoneta asignada hoy")
                 self.lbl_furgoneta_asignada.setStyleSheet("color: #dc2626; font-weight: bold;")
                 self.furgoneta_id = None
-        except Exception:
-            pass
+                self.cmb_articulo.clear()
+                self.cmb_articulo.addItem("(Sin furgoneta asignada)", None)
+        except Exception as e:
+            logger.warning(f"Error al obtener furgoneta para material perdido: {e}")
     
     def cargar_articulos(self):
-        """Carga todos los artículos activos"""
+        """Carga artículos - se llama al inicio pero está vacío hasta seleccionar operario"""
+        self.cmb_articulo.clear()
+        self.cmb_articulo.addItem("(Seleccione operario primero)", None)
+
+    def cargar_articulos_furgoneta(self):
+        """Carga los artículos disponibles en la furgoneta del operario"""
+        if not self.furgoneta_id:
+            self.cmb_articulo.clear()
+            self.cmb_articulo.addItem("(Sin furgoneta asignada)", None)
+            return
+
         try:
             con = get_con()
             cur = con.cursor()
+            # Obtener stock actual en la furgoneta
             cur.execute("""
-                SELECT id, nombre, u_medida
-                FROM articulos
-                WHERE activo=1
-                ORDER BY nombre
-            """)
+                SELECT a.id, a.nombre, a.u_medida, COALESCE(SUM(v.delta), 0) as stock
+                FROM articulos a
+                LEFT JOIN vw_stock v ON a.id = v.articulo_id AND v.almacen_id = ?
+                WHERE a.activo = 1
+                GROUP BY a.id, a.nombre, a.u_medida
+                HAVING stock > 0
+                ORDER BY a.nombre
+            """, (self.furgoneta_id,))
             rows = cur.fetchall()
             con.close()
-            
+
+            self.cmb_articulo.clear()
             self.cmb_articulo.addItem("(Seleccione artículo)", None)
+
             for row in rows:
-                texto = f"{row[1]} ({row[2]})"
-                self.cmb_articulo.addItem(texto, {'id': row[0], 'nombre': row[1], 'u_medida': row[2]})
+                texto = f"{row[1]} ({row[2]}) - Stock: {row[3]:.2f}"
+                self.cmb_articulo.addItem(texto, {
+                    'id': row[0],
+                    'nombre': row[1],
+                    'u_medida': row[2],
+                    'stock': row[3]
+                })
         except Exception as e:
+            logger.exception(f"Error al cargar artículos de la furgoneta: {e}")
             QMessageBox.critical(self, "❌ Error", f"Error al cargar artículos:\n{e}")
     
     def guardar_perdida(self):
-        """Guarda el registro de material perdido"""
-        # Validaciones
+        """Guarda el registro de material perdido usando el service"""
+        # Validaciones básicas
         operario_id = self.cmb_operario.currentData()
         if not operario_id:
             QMessageBox.warning(self, "⚠️ Aviso", "Debe seleccionar un operario responsable.")
             return
-        
+
         if not self.furgoneta_id:
             QMessageBox.warning(self, "⚠️ Aviso", "El operario no tiene furgoneta asignada.")
             return
-        
+
         articulo_data = self.cmb_articulo.currentData()
         if not articulo_data or not isinstance(articulo_data, dict):
             QMessageBox.warning(self, "⚠️ Aviso", "Debe seleccionar un artículo.")
             return
-        
+
         cantidad = self.spin_cantidad.value()
         motivo = self.txt_motivo.toPlainText().strip()
-        
+
         if not motivo:
             QMessageBox.warning(self, "⚠️ Aviso", "Debe especificar el motivo de la pérdida.")
             self.txt_motivo.setFocus()
             return
-        
+
         fecha = self.date_fecha.date().toString("yyyy-MM-dd")
-        
+
         # Confirmación
         operario_nombre = self.cmb_operario.currentText()
         articulo_nombre = articulo_data['nombre']
-        
+
         respuesta = QMessageBox.question(
             self,
             "⚠️ Confirmar registro de pérdida",
@@ -297,41 +358,49 @@ class VentanaMaterialPerdido(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
+
         if respuesta != QMessageBox.Yes:
             return
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            
-            # Obtener nombre del operario
-            cur.execute("SELECT nombre FROM operarios WHERE id=?", (operario_id,))
-            operario_nombre_bd = cur.fetchone()[0]
-            
-            # Registrar movimiento de pérdida
-            cur.execute("""
-                INSERT INTO movimientos(fecha, tipo, origen_id, destino_id, articulo_id, 
-                                       cantidad, motivo, responsable)
-                VALUES(?, 'PERDIDA', ?, NULL, ?, ?, ?, ?)
-            """, (fecha, self.furgoneta_id, articulo_data['id'], cantidad, motivo, operario_nombre_bd))
-            
-            con.commit()
-            con.close()
-            
-            QMessageBox.information(
-                self,
-                "✅ Registrado",
-                f"Pérdida registrada correctamente.\n\n"
-                f"Operario: {operario_nombre_bd}\n"
-                f"Artículo: {articulo_nombre}\n"
-                f"Cantidad: {cantidad:.2f}"
+
+        # Preparar datos para el service
+        articulos = [{'articulo_id': articulo_data['id'], 'cantidad': cantidad}]
+
+        # Llamar al service
+        exito, mensaje, ids_creados = movimientos_service.crear_material_perdido(
+            fecha=fecha,
+            almacen_id=self.furgoneta_id,
+            articulos=articulos,
+            motivo=motivo,
+            usuario=session_manager.get_usuario_actual() or "admin"
+        )
+
+        if not exito:
+            QMessageBox.critical(self, "❌ Error", f"Error al guardar:\n{mensaje}")
+            return
+
+        # Guardar en historial
+        usuario = session_manager.get_usuario_actual()
+        if usuario:
+            historial_service.guardar_en_historial(
+                usuario=usuario,
+                tipo_operacion='material_perdido',
+                articulo_id=articulo_data['id'],
+                articulo_nombre=articulo_data['nombre'],
+                cantidad=cantidad,
+                u_medida=articulo_data['u_medida'],
+                datos_adicionales={'motivo': motivo[:100]}
             )
-            
-            self.limpiar()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al guardar:\n{e}")
+
+        QMessageBox.information(
+            self,
+            "✅ Registrado",
+            f"Pérdida registrada correctamente.\n\n"
+            f"Operario: {operario_nombre}\n"
+            f"Artículo: {articulo_nombre}\n"
+            f"Cantidad: {cantidad:.2f}"
+        )
+
+        self.limpiar()
     
     def limpiar(self):
         """Limpia todos los campos"""

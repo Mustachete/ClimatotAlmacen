@@ -10,6 +10,9 @@ COLOR_BLANCO = "#ffffff"
 COLOR_GRIS_BORDE = "#e2e8f0"          # Gris claro para bordes
 COLOR_TEXTO_OSCURO = "#1e293b"        # Casi negro para texto
 COLOR_TEXTO_GRIS = "#64748b"          # Gris para texto secundario
+COLOR_ROJO = "#dc2626"                # Rojo para acciones destructivas
+COLOR_ROJO_HOVER = "#b91c1c"          # Rojo hover
+COLOR_ROJO_PRESSED = "#991b1b"        # Rojo pressed
 
 # ========================================
 # ESTILO PARA VENTANAS PRINCIPALES
@@ -300,31 +303,69 @@ ESTILO_LOGIN = f"""
     }}
     
     QLineEdit {{
-        padding: 12px;
+        padding: 12px 15px;
         border: 2px solid {COLOR_GRIS_BORDE};
-        border-radius: 6px;
+        border-radius: 8px;
         background-color: {COLOR_BLANCO};
-        font-size: 14px;
+        font-size: 15px;
         color: {COLOR_TEXTO_OSCURO};
+        min-height: 45px;
     }}
-    
+
     QLineEdit:focus {{
         border: 2px solid {COLOR_AZUL_PRINCIPAL};
+        background-color: {COLOR_BLANCO};
+    }}
+
+    QLineEdit::placeholder {{
+        color: {COLOR_TEXTO_GRIS};
+        font-style: italic;
     }}
     
     QPushButton {{
-        padding: 12px;
+        padding: 14px 20px;
         background-color: {COLOR_BLANCO};
         border: 2px solid {COLOR_AZUL_PRINCIPAL};
-        border-radius: 6px;
+        border-radius: 8px;
         color: {COLOR_AZUL_PRINCIPAL};
         font-weight: bold;
-        font-size: 14px;
-        min-height: 40px;
+        font-size: 15px;
+        min-height: 50px;
     }}
-    
+
     QPushButton:hover {{
         background-color: {COLOR_AZUL_PRINCIPAL};
         color: {COLOR_BLANCO};
+    }}
+
+    QPushButton:pressed {{
+        background-color: {COLOR_AZUL_HOVER};
+    }}
+"""
+
+# ========================================
+# ESTILO PARA BOTÓN QUITAR (COMPACTO Y RESPONSIVE)
+# ========================================
+# Este estilo permite que el botón se adapte al contenedor donde se coloca
+# No usa tamaños fijos, sino que se ajusta al espacio disponible
+ESTILO_BOTON_QUITAR = f"""
+    QPushButton {{
+        background-color: {COLOR_ROJO};
+        color: {COLOR_BLANCO};
+        border: none;
+        border-radius: 3px;
+        padding: 2px 6px;
+        font-size: 13px;
+        font-weight: normal;
+        min-width: 50px;
+        max-width: 80px;
+        min-height: 20px;
+        max-height: 24px;
+    }}
+    QPushButton:hover {{
+        background-color: {COLOR_ROJO_HOVER};
+    }}
+    QPushButton:pressed {{
+        background-color: {COLOR_ROJO_PRESSED};
     }}
 """

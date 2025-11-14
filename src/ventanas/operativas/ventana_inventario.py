@@ -6,13 +6,15 @@ from PySide6.QtWidgets import (
     QCheckBox, QTabWidget
 )
 from PySide6.QtCore import Qt, QDate
-from PySide6.QtGui import QColor
-from pathlib import Path
-import sqlite3
+from PySide6.QtGui import QColor, QShortcut, QKeySequence
 import datetime
 from src.ui.estilos import ESTILO_VENTANA, ESTILO_DIALOGO
 from src.ui.widgets_personalizados import SpinBoxClimatot
 from src.core.db_utils import get_con
+from src.core.logger import logger
+from src.services import inventarios_service, historial_service
+from src.core.session_manager import session_manager
+from src.repos import inventarios_repo
 
 # ========================================
 # DIÁLOGO: NUEVO INVENTARIO
@@ -21,7 +23,8 @@ class DialogoNuevoInventario(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("📋 Crear Nuevo Inventario")
-        self.setFixedSize(600, 600)
+        self.setMinimumSize(500, 500)
+        self.resize(600, 600)
         self.setStyleSheet(ESTILO_DIALOGO)
         
         layout = QVBoxLayout(self)
@@ -103,102 +106,65 @@ class DialogoNuevoInventario(QDialog):
         self.inventario_id = None
     
     def cargar_almacenes(self):
-        """Carga los almacenes"""
+        """Carga los almacenes y furgonetas"""
         try:
             con = get_con()
             cur = con.cursor()
-            cur.execute("SELECT id, nombre FROM almacenes ORDER BY nombre")
+            cur.execute("SELECT id, nombre, tipo FROM almacenes ORDER BY tipo, nombre")
             rows = cur.fetchall()
             con.close()
-            
+
             for row in rows:
-                self.cmb_almacen.addItem(row[1], row[0])
-        except Exception:
-            pass
+                almacen_id, nombre, tipo = row
+                # Añadir icono según tipo
+                if tipo == 'furgoneta':
+                    texto = f"🚚 {nombre}"
+                else:
+                    texto = f"🏢 {nombre}"
+                self.cmb_almacen.addItem(texto, almacen_id)
+        except Exception as e:
+            logger.exception(f"Error al cargar almacenes: {e}")
     
     def crear_inventario(self):
-        """Crea el inventario y genera las líneas de detalle"""
+        """Crea el inventario usando el service"""
         responsable = self.txt_responsable.text().strip()
-        
+
         if not responsable:
             QMessageBox.warning(self, "⚠️ Aviso", "El responsable es obligatorio.")
             return
-        
+
         almacen_id = self.cmb_almacen.currentData()
         if not almacen_id:
             QMessageBox.warning(self, "⚠️ Aviso", "Debe seleccionar un almacén.")
             return
-        
+
         fecha = self.date_fecha.date().toString("yyyy-MM-dd")
-        observaciones = self.txt_observaciones.toPlainText().strip()
+        observaciones = self.txt_observaciones.toPlainText().strip() or None
         solo_con_stock = self.radio_con_stock.isChecked()
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            
-            # Crear cabecera del inventario
-            cur.execute("""
-                INSERT INTO inventarios(fecha, responsable, almacen_id, observaciones, estado)
-                VALUES(?, ?, ?, ?, 'EN_PROCESO')
-            """, (fecha, responsable, almacen_id, observaciones))
-            
-            inventario_id = cur.lastrowid
-            
-            # Obtener artículos a inventariar
-            if solo_con_stock:
-                query = """
-                    SELECT DISTINCT a.id, a.nombre, a.u_medida, COALESCE(SUM(v.delta), 0) as stock
-                    FROM articulos a
-                    LEFT JOIN vw_stock v ON a.id = v.articulo_id AND v.almacen_id = ?
-                    WHERE a.activo = 1
-                    GROUP BY a.id
-                    HAVING stock > 0
-                    ORDER BY a.nombre
-                """
-                cur.execute(query, (almacen_id,))
-            else:
-                query = """
-                    SELECT a.id, a.nombre, a.u_medida, COALESCE(SUM(v.delta), 0) as stock
-                    FROM articulos a
-                    LEFT JOIN vw_stock v ON a.id = v.articulo_id AND v.almacen_id = ?
-                    WHERE a.activo = 1
-                    GROUP BY a.id
-                    ORDER BY a.nombre
-                """
-                cur.execute(query, (almacen_id,))
-            
-            articulos = cur.fetchall()
-            
-            if not articulos:
-                con.close()
-                QMessageBox.warning(self, "⚠️ Aviso", "No hay artículos para inventariar.")
-                return
-            
-            # Crear líneas de detalle
-            for art in articulos:
-                cur.execute("""
-                    INSERT INTO inventario_detalle(inventario_id, articulo_id, stock_teorico, stock_contado, diferencia)
-                    VALUES(?, ?, ?, 0, ?)
-                """, (inventario_id, art[0], art[3], -art[3]))
-            
-            con.commit()
-            con.close()
-            
-            self.inventario_id = inventario_id
-            
-            QMessageBox.information(
-                self,
-                "✅ Éxito",
-                f"Inventario creado correctamente.\n\n"
-                f"Artículos a contar: {len(articulos)}\n\n"
-                f"Ahora puede registrar los conteos físicos."
-            )
-            
-            self.accept()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al crear inventario:\n{e}")
+
+        # Llamar al service
+        exito, mensaje, inventario_id = inventarios_service.crear_inventario(
+            fecha=fecha,
+            responsable=responsable,
+            almacen_id=almacen_id,
+            observaciones=observaciones,
+            solo_con_stock=solo_con_stock,
+            usuario=session_manager.get_usuario_actual() or "admin"
+        )
+
+        if not exito:
+            QMessageBox.warning(self, "⚠️ Aviso", mensaje)
+            return
+
+        self.inventario_id = inventario_id
+
+        QMessageBox.information(
+            self,
+            "✅ Éxito",
+            f"{mensaje}\n\nAhora puede registrar los conteos físicos."
+        )
+
+        self.accept()
 
 # ========================================
 # VENTANA: REGISTRAR CONTEOS
@@ -297,16 +263,22 @@ class VentanaConteo(QWidget):
         
         # Botones
         botones_layout = QHBoxLayout()
-        
+
+        self.btn_exportar = QPushButton("📄 Exportar Diferencias")
+        self.btn_exportar.setMinimumHeight(50)
+        self.btn_exportar.setToolTip("Exportar listado de diferencias a CSV")
+        self.btn_exportar.clicked.connect(self.exportar_diferencias)
+
         self.btn_finalizar = QPushButton("✅ FINALIZAR INVENTARIO Y AJUSTAR STOCK")
         self.btn_finalizar.setMinimumHeight(50)
         self.btn_finalizar.setStyleSheet("font-size: 14px; font-weight: bold;")
         self.btn_finalizar.clicked.connect(self.finalizar_inventario)
-        
+
         self.btn_volver = QPushButton("⬅️ Volver")
         self.btn_volver.setMinimumHeight(50)
         self.btn_volver.clicked.connect(self.close)
-        
+
+        botones_layout.addWidget(self.btn_exportar, 2)
         botones_layout.addWidget(self.btn_finalizar, 3)
         botones_layout.addWidget(self.btn_volver, 1)
         
@@ -547,12 +519,88 @@ class VentanaConteo(QWidget):
         btn_guardar.clicked.connect(guardar_conteo)
         
         dialogo.exec()
-    
+
+    def exportar_diferencias(self):
+        """Exporta las diferencias del inventario a CSV"""
+        try:
+            import csv
+            from datetime import datetime
+            from PySide6.QtWidgets import QFileDialog
+
+            # Obtener diferencias
+            diferencias = inventarios_repo.get_diferencias(self.inventario_id)
+
+            if not diferencias:
+                QMessageBox.information(
+                    self,
+                    "ℹ️ Sin diferencias",
+                    "No hay diferencias que exportar.\n\n"
+                    "Todos los conteos coinciden con el stock teórico."
+                )
+                return
+
+            # Diálogo para guardar archivo
+            fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            nombre_sugerido = f"inventario_{self.inventario_id}_diferencias_{fecha_str}.csv"
+
+            ruta, _ = QFileDialog.getSaveFileName(
+                self,
+                "Guardar diferencias como CSV",
+                nombre_sugerido,
+                "CSV Files (*.csv);;All Files (*)"
+            )
+
+            if not ruta:
+                return  # Usuario canceló
+
+            # Escribir CSV
+            with open(ruta, 'w', newline='', encoding='utf-8-sig') as csvfile:
+                writer = csv.writer(csvfile, delimiter=';')
+
+                # Encabezado
+                writer.writerow([
+                    'Artículo ID',
+                    'Nombre',
+                    'U.Medida',
+                    'Stock Teórico',
+                    'Stock Contado',
+                    'Diferencia',
+                    'Tipo'
+                ])
+
+                # Datos
+                for diff in diferencias:
+                    tipo = "SOBRANTE" if diff['diferencia'] > 0 else "FALTANTE"
+                    writer.writerow([
+                        diff['articulo_id'],
+                        diff['articulo_nombre'],
+                        diff['u_medida'],
+                        f"{diff['stock_teorico']:.2f}".replace('.', ','),
+                        f"{diff['stock_contado']:.2f}".replace('.', ','),
+                        f"{diff['diferencia']:.2f}".replace('.', ','),
+                        tipo
+                    ])
+
+            QMessageBox.information(
+                self,
+                "✅ Exportación exitosa",
+                f"Diferencias exportadas correctamente a:\n\n{ruta}\n\n"
+                f"Total de líneas con diferencias: {len(diferencias)}"
+            )
+
+        except Exception as e:
+            logger.exception(f"Error al exportar diferencias: {e}")
+            QMessageBox.critical(
+                self,
+                "❌ Error",
+                f"Error al exportar diferencias:\n{e}"
+            )
+
     def finalizar_inventario(self):
-        """Finaliza el inventario y genera los ajustes de stock"""
+        """Finaliza el inventario usando el service"""
         # Verificar si hay pendientes
         pendientes = sum(1 for r in self.rows if r[4] == 0)
-        
+
         if pendientes > 0:
             respuesta = QMessageBox.question(
                 self,
@@ -563,10 +611,10 @@ class VentanaConteo(QWidget):
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
-            
+
             if respuesta != QMessageBox.Yes:
                 return
-        
+
         # Confirmar finalización
         respuesta = QMessageBox.question(
             self,
@@ -577,75 +625,28 @@ class VentanaConteo(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
+
         if respuesta != QMessageBox.Yes:
             return
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            
-            # Obtener almacén del inventario
-            cur.execute("SELECT almacen_id FROM inventarios WHERE id = ?", (self.inventario_id,))
-            almacen_id = cur.fetchone()[0]
-            
-            # Obtener todas las diferencias
-            cur.execute("""
-                SELECT articulo_id, diferencia
-                FROM inventario_detalle
-                WHERE inventario_id = ? AND diferencia != 0
-            """, (self.inventario_id,))
-            diferencias = cur.fetchall()
-            
-            fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
-            
-            # Generar movimientos de ajuste
-            ajustes_positivos = 0
-            ajustes_negativos = 0
-            
-            for articulo_id, diferencia in diferencias:
-                if diferencia > 0:
-                    # Sobra material - Entrada
-                    cur.execute("""
-                        INSERT INTO movimientos(fecha, tipo, origen_id, destino_id, articulo_id, cantidad, motivo)
-                        VALUES(?, 'ENTRADA', NULL, ?, ?, ?, ?)
-                    """, (fecha_hoy, almacen_id, articulo_id, diferencia, 
-                          f"Ajuste inventario #{self.inventario_id}"))
-                    ajustes_positivos += 1
-                else:
-                    # Falta material - Pérdida
-                    cur.execute("""
-                        INSERT INTO movimientos(fecha, tipo, origen_id, destino_id, articulo_id, cantidad, motivo, responsable)
-                        VALUES(?, 'PERDIDA', ?, NULL, ?, ?, ?, ?)
-                    """, (fecha_hoy, almacen_id, articulo_id, abs(diferencia),
-                          f"Ajuste inventario #{self.inventario_id}", 
-                          self.info_inv['responsable']))
-                    ajustes_negativos += 1
-            
-            # Marcar inventario como finalizado
-            cur.execute("""
-                UPDATE inventarios
-                SET estado = 'FINALIZADO', fecha_cierre = ?
-                WHERE id = ?
-            """, (fecha_hoy, self.inventario_id))
-            
-            con.commit()
-            con.close()
-            
-            QMessageBox.information(
-                self,
-                "✅ Inventario Finalizado",
-                f"Inventario finalizado correctamente.\n\n"
-                f"Ajustes generados:\n"
-                f"  • Entradas (sobra): {ajustes_positivos}\n"
-                f"  • Salidas (falta): {ajustes_negativos}\n\n"
-                f"El stock ha sido actualizado automáticamente."
-            )
-            
-            self.close()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al finalizar inventario:\n{e}")
+
+        # Llamar al service para finalizar con ajustes
+        exito, mensaje, stats = inventarios_service.finalizar_inventario(
+            inventario_id=self.inventario_id,
+            aplicar_ajustes=True,
+            usuario=session_manager.get_usuario_actual() or "admin"  # TODO: obtener usuario real
+        )
+
+        if not exito:
+            QMessageBox.critical(self, "❌ Error", mensaje)
+            return
+
+        QMessageBox.information(
+            self,
+            "✅ Inventario Finalizado",
+            mensaje
+        )
+
+        self.close()
 
 # ========================================
 # VENTANA PRINCIPAL: INVENTARIO FÍSICO
@@ -737,9 +738,51 @@ class VentanaInventario(QWidget):
         btn_volver.setMinimumHeight(45)
         btn_volver.clicked.connect(self.close)
         layout.addWidget(btn_volver)
-        
+
+        # ========== ATAJOS DE TECLADO ==========
+        self.configurar_atajos_teclado()
+
+        # Mostrar ayuda de atajos
+        ayuda_atajos = QLabel(
+            "⌨️ Atajos: Ctrl+N=Nuevo | Ctrl+C=Continuar | F5=Actualizar | Esc=Cerrar"
+        )
+        ayuda_atajos.setStyleSheet(
+            "background-color: #f1f5f9; padding: 8px; border-radius: 4px; "
+            "color: #475569; font-size: 11px; margin-top: 5px;"
+        )
+        ayuda_atajos.setAlignment(Qt.AlignCenter)
+        layout.addWidget(ayuda_atajos)
+
         # Cargar datos
         self.cargar_inventarios()
+
+    def configurar_atajos_teclado(self):
+        """Configura los atajos de teclado para la ventana"""
+        # Ctrl+N: Nuevo inventario
+        shortcut_nuevo = QShortcut(QKeySequence("Ctrl+N"), self)
+        shortcut_nuevo.activated.connect(self.nuevo_inventario)
+
+        # Ctrl+C: Continuar inventario
+        shortcut_continuar = QShortcut(QKeySequence("Ctrl+C"), self)
+        shortcut_continuar.activated.connect(self.continuar_inventario_shortcut)
+
+        # F5: Actualizar lista
+        shortcut_actualizar = QShortcut(QKeySequence("F5"), self)
+        shortcut_actualizar.activated.connect(self.cargar_inventarios)
+
+        # Esc: Cerrar ventana
+        shortcut_cerrar = QShortcut(QKeySequence("Esc"), self)
+        shortcut_cerrar.activated.connect(self.close)
+
+        # Actualizar tooltips
+        self.btn_nuevo.setToolTip("Crear nuevo inventario (Ctrl+N)")
+        self.btn_continuar.setToolTip("Continuar inventario seleccionado (Ctrl+C)")
+        self.btn_actualizar.setToolTip("Actualizar lista (F5)")
+
+    def continuar_inventario_shortcut(self):
+        """Wrapper para continuar inventario solo si botón está habilitado"""
+        if self.btn_continuar.isEnabled():
+            self.continuar_inventario()
     
     def cargar_inventarios(self):
         """Carga el histórico de inventarios"""

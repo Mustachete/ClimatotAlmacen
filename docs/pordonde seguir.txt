@@ -1,0 +1,10 @@
+📝 Próximos pasos sugeridos
+Alta Prioridad:
+Crear ventana_usuarios.py - Interfaz para gestionar usuarios desde la aplicación (actualmente solo disponible vía script o código)
+Media Prioridad:
+Refinar permisos por rol - Implementar validaciones específicas en ventanas según rol del usuario
+Funcionalidad de cambio de contraseña - Permitir a usuarios cambiar su propia contraseña
+Baja Prioridad:
+Políticas de contraseñas más fuertes - Aumentar requisitos de seguridad
+Historial de sesiones - Dashboard para ver actividad de usuarios
+Unit tests - Agregar tests automatizados

@@ -2,18 +2,21 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
     QTableWidgetItem, QLineEdit, QLabel, QMessageBox, QComboBox,
-    QDateEdit, QRadioButton, QButtonGroup, QGroupBox, QHeaderView,
-    QDoubleSpinBox
+    QDateEdit, QRadioButton, QButtonGroup, QGroupBox, QHeaderView, QDialog,
+    QListWidget, QListWidgetItem
 )
 from PySide6.QtCore import Qt, QDate, QTimer
-from pathlib import Path
-import sqlite3
+from PySide6.QtGui import QShortcut, QKeySequence
 import datetime
 from src.ui.estilos import ESTILO_VENTANA
-from src.ui.widgets_personalizados import SpinBoxClimatot
+from src.ui.widgets_personalizados import SpinBoxClimatot, crear_boton_quitar_centrado
 from src.core.db_utils import get_con
-from src.core.logger import logger, log_operacion
+from src.core.logger import logger
 from src.core.error_handler import handle_db_errors, validate_field, show_warning, show_info
+from src.services import movimientos_service, historial_service
+from src.repos import movimientos_repo
+from src.services.furgonetas_service import list_furgonetas
+from src.core.session_manager import session_manager
 
 # ========================================
 # VENTANA DE HACER MOVIMIENTOS
@@ -22,7 +25,8 @@ class VentanaMovimientos(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("🔄 Hacer Movimientos - Supermercado")
-        self.setFixedSize(1100, 750)
+        self.setMinimumSize(900, 600)
+        self.resize(1100, 750)
         self.setStyleSheet(ESTILO_VENTANA)
         
         # Lista temporal de artículos
@@ -65,7 +69,13 @@ class VentanaMovimientos(QWidget):
         lbl_furgoneta = QLabel("🚚 Furgoneta:")
         self.lbl_furgoneta_asignada = QLabel("(Seleccione operario)")
         self.lbl_furgoneta_asignada.setStyleSheet("color: #64748b; font-style: italic;")
-        
+
+        # Botón para asignar/cambiar furgoneta
+        self.btn_asignar_furgoneta = QPushButton("Asignar Furgoneta")
+        self.btn_asignar_furgoneta.setMaximumWidth(150)
+        self.btn_asignar_furgoneta.clicked.connect(self.abrir_dialogo_asignar_furgoneta)
+        self.btn_asignar_furgoneta.setEnabled(False)  # Habilitado solo cuando hay operario seleccionado
+
         datos_layout.addWidget(lbl_fecha)
         datos_layout.addWidget(self.date_fecha)
         datos_layout.addSpacing(20)
@@ -74,6 +84,7 @@ class VentanaMovimientos(QWidget):
         datos_layout.addSpacing(20)
         datos_layout.addWidget(lbl_furgoneta)
         datos_layout.addWidget(self.lbl_furgoneta_asignada)
+        datos_layout.addWidget(self.btn_asignar_furgoneta)
         datos_layout.addStretch()
         
         grupo_datos.setLayout(datos_layout)
@@ -113,8 +124,10 @@ class VentanaMovimientos(QWidget):
         lbl_buscar = QLabel("🔍 Buscar artículo:")
         self.txt_buscar = QLineEdit()
         self.txt_buscar.setPlaceholderText("Escanea código de barras o escribe nombre/referencia/palabras clave...")
-        self.txt_buscar.returnPressed.connect(self.buscar_articulo)
+        self.txt_buscar.returnPressed.connect(self.buscar_o_seleccionar)
         self.txt_buscar.textChanged.connect(self.busqueda_tiempo_real)
+        # Instalar event filter para capturar flechas
+        self.txt_buscar.installEventFilter(self)
         
         # Timer para búsqueda en tiempo real (espera 300ms después de escribir)
         self.timer_busqueda = QTimer()
@@ -131,16 +144,48 @@ class VentanaMovimientos(QWidget):
         self.btn_agregar = QPushButton("➕ Agregar")
         self.btn_agregar.setMinimumHeight(40)
         self.btn_agregar.clicked.connect(self.agregar_desde_busqueda)
-        
+
+        self.btn_historial = QPushButton("📜 Historial")
+        self.btn_historial.setMinimumHeight(40)
+        self.btn_historial.setToolTip("Ver historial de operaciones recientes y artículos frecuentes")
+        self.btn_historial.clicked.connect(self.abrir_historial)
+
         busqueda_layout.addWidget(lbl_buscar)
         busqueda_layout.addWidget(self.txt_buscar, 3)
         busqueda_layout.addWidget(lbl_cantidad)
         busqueda_layout.addWidget(self.spin_cantidad)
         busqueda_layout.addWidget(self.btn_agregar)
+        busqueda_layout.addWidget(self.btn_historial)
         
         articulos_layout.addLayout(busqueda_layout)
-        
-        # Sugerencias de búsqueda
+
+        # Lista de sugerencias (dropdown interactivo)
+        self.lista_sugerencias = QListWidget()
+        self.lista_sugerencias.setMaximumHeight(120)
+        self.lista_sugerencias.setVisible(False)
+        self.lista_sugerencias.itemClicked.connect(self.seleccionar_sugerencia)
+        self.lista_sugerencias.setStyleSheet("""
+            QListWidget {
+                border: 2px solid #1e3a8a;
+                border-radius: 5px;
+                background-color: white;
+                font-size: 13px;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #e2e8f0;
+            }
+            QListWidget::item:hover {
+                background-color: #dbeafe;
+            }
+            QListWidget::item:selected {
+                background-color: #1e3a8a;
+                color: white;
+            }
+        """)
+        articulos_layout.addWidget(self.lista_sugerencias)
+
+        # Sugerencias de búsqueda (label de estado)
         self.lbl_sugerencia = QLabel("")
         self.lbl_sugerencia.setStyleSheet("color: #1e3a8a; font-size: 12px; margin: 5px; font-style: italic;")
         articulos_layout.addWidget(self.lbl_sugerencia)
@@ -186,35 +231,72 @@ class VentanaMovimientos(QWidget):
         botones_layout.addWidget(self.btn_guardar, 3)
         botones_layout.addWidget(self.btn_cancelar, 1)
         botones_layout.addWidget(self.btn_volver, 1)
-        
+
         layout.addLayout(botones_layout)
+
+        # ========== ATAJOS DE TECLADO ==========
+        self.configurar_atajos_teclado()
+
+        # Mostrar ayuda de atajos en barra de estado simulada
+        ayuda_atajos = QLabel(
+            "⌨️ Atajos: F2=Buscar | F5=Limpiar | Ctrl+Enter=Guardar | "
+            "Esc=Cancelar | Ctrl+1=Entregar | Ctrl+2=Recibir"
+        )
+        ayuda_atajos.setStyleSheet(
+            "background-color: #f1f5f9; padding: 8px; border-radius: 4px; "
+            "color: #475569; font-size: 11px; margin-top: 5px;"
+        )
+        ayuda_atajos.setAlignment(Qt.AlignCenter)
+        layout.addWidget(ayuda_atajos)
         
         # Focus inicial en búsqueda
         self.txt_buscar.setFocus()
-    
+
+    def configurar_atajos_teclado(self):
+        """Configura los atajos de teclado para la ventana"""
+        # F2: Focus en búsqueda para añadir rápido
+        shortcut_buscar = QShortcut(QKeySequence("F2"), self)
+        shortcut_buscar.activated.connect(lambda: self.txt_buscar.setFocus())
+
+        # F5: Limpiar formulario
+        shortcut_limpiar = QShortcut(QKeySequence("F5"), self)
+        shortcut_limpiar.activated.connect(self.limpiar_todo)
+
+        # Ctrl+Return: Guardar movimiento
+        shortcut_guardar = QShortcut(QKeySequence("Ctrl+Return"), self)
+        shortcut_guardar.activated.connect(self.guardar_movimiento)
+
+        # Esc: Cancelar/limpiar
+        shortcut_cancelar = QShortcut(QKeySequence("Esc"), self)
+        shortcut_cancelar.activated.connect(self.limpiar_todo)
+
+        # Ctrl+1: Modo entregar
+        shortcut_entregar = QShortcut(QKeySequence("Ctrl+1"), self)
+        shortcut_entregar.activated.connect(lambda: self.radio_entregar.setChecked(True))
+
+        # Ctrl+2: Modo recibir
+        shortcut_recibir = QShortcut(QKeySequence("Ctrl+2"), self)
+        shortcut_recibir.activated.connect(lambda: self.radio_recibir.setChecked(True))
+
+        # Actualizar tooltips de botones con atajos
+        self.btn_guardar.setToolTip("Guardar movimiento (Ctrl+Enter)")
+        self.btn_cancelar.setToolTip("Cancelar y limpiar (Esc)")
+        self.txt_buscar.setToolTip("Buscar artículo (F2 para focus rápido)")
+
     @handle_db_errors("cargar_operarios")
     def cargar_operarios(self):
         """Carga los operarios activos"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("""
-                SELECT id, nombre, rol_operario 
-                FROM operarios 
-                WHERE activo=1 
-                ORDER BY rol_operario DESC, nombre
-            """)
-            rows = cur.fetchall()
-            con.close()
-            
+            operarios = movimientos_repo.get_operarios_activos()
+
             self.cmb_operario.addItem("(Seleccione operario)", None)
-            for row in rows:
-                emoji = "👷" if row[2] == "oficial" else "🔨"
-                texto = f"{emoji} {row[1]} ({row[2]})"
-                self.cmb_operario.addItem(texto, row[0])
-        
+            for op in operarios:
+                emoji = "👷" if op['rol_operario'] == "oficial" else "🔨"
+                texto = f"{emoji} {op['nombre']} ({op['rol_operario']})"
+                self.cmb_operario.addItem(texto, op['id'])
+
         except Exception as e:
-            log_error_bd("movimientos", "cargar_operarios", e)
+            logger.error(f"Error al cargar operarios: {e}")
             QMessageBox.critical(self, "❌ Error", f"Error al cargar operarios:\n{e}")
             
     def cambio_operario(self):
@@ -223,44 +305,222 @@ class VentanaMovimientos(QWidget):
         if not operario_id:
             self.lbl_furgoneta_asignada.setText("(Seleccione operario)")
             self.lbl_furgoneta_asignada.setStyleSheet("color: #64748b; font-style: italic;")
+            self.btn_asignar_furgoneta.setEnabled(False)
             return
-        
+
+        # Habilitar botón de asignar furgoneta
+        self.btn_asignar_furgoneta.setEnabled(True)
+
         try:
-            con = get_con()
-            cur = con.cursor()
+            from src.services.furgonetas_service import obtener_furgoneta_operario
             fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
-            cur.execute("""
-                SELECT a.nombre 
-                FROM asignaciones_furgoneta af
-                JOIN almacenes a ON af.furgoneta_id = a.id
-                WHERE af.operario_id=? AND af.fecha=?
-            """, (operario_id, fecha_hoy))
-            row = cur.fetchone()
-            con.close()
-            
-            if row:
-                self.lbl_furgoneta_asignada.setText(f"🚚 Furgoneta {row[0]}")
+            furgoneta = obtener_furgoneta_operario(operario_id, fecha_hoy)
+
+            if furgoneta:
+                self.lbl_furgoneta_asignada.setText(f"🚚 Furgoneta {furgoneta['furgoneta_nombre']}")
                 self.lbl_furgoneta_asignada.setStyleSheet("color: #1e3a8a; font-weight: bold;")
             else:
                 self.lbl_furgoneta_asignada.setText("⚠️ Sin furgoneta asignada hoy")
                 self.lbl_furgoneta_asignada.setStyleSheet("color: #dc2626; font-weight: bold;")
-        except Exception:
-            pass
-    
+        except Exception as e:
+            logger.warning(f"Error al obtener furgoneta asignada: {e}")
+
+    def abrir_dialogo_asignar_furgoneta(self):
+        """Abre el diálogo para asignar una furgoneta al operario seleccionado"""
+        operario_id = self.cmb_operario.currentData()
+        operario_nombre = self.cmb_operario.currentText()
+
+        if not operario_id:
+            QMessageBox.warning(self, "⚠️ Validación", "Debes seleccionar un operario primero.")
+            return
+
+        try:
+            # Obtener lista de furgonetas para mostrar opciones
+            furgonetas = list_furgonetas(include_inactive=False)
+
+            if not furgonetas:
+                QMessageBox.warning(
+                    self,
+                    "⚠️ Sin furgonetas",
+                    "No hay furgonetas registradas en el sistema.\n\nPor favor, registra furgonetas en Maestros → Almacén/Furgonetas."
+                )
+                return
+
+            # Crear un diálogo simplificado para seleccionar furgoneta
+            from PySide6.QtWidgets import QVBoxLayout, QFormLayout, QComboBox, QButtonGroup, QRadioButton
+            from src.ui.estilos import ESTILO_DIALOGO
+
+            dialogo = QDialog(self)
+            dialogo.setWindowTitle(f"🚚 Asignar Furgoneta a: {operario_nombre}")
+            dialogo.setMinimumSize(500, 300)
+            dialogo.resize(550, 350)
+            dialogo.setStyleSheet(ESTILO_DIALOGO)
+
+            layout = QVBoxLayout(dialogo)
+
+            # Información
+            info = QLabel(f"📋 Asignar furgoneta a '{operario_nombre}'")
+            info.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 10px;")
+            layout.addWidget(info)
+
+            # Formulario
+            form = QFormLayout()
+
+            cmb_furgoneta = QComboBox()
+            cmb_furgoneta.addItem("(Selecciona una furgoneta)", None)
+
+            for f in furgonetas:
+                numero = f.get('numero')
+                matricula = f.get('matricula', '')
+                if numero:
+                    texto = f"🚚 Furgoneta {numero} - {matricula}"
+                else:
+                    texto = f"🚚 {matricula}"
+                cmb_furgoneta.addItem(texto, f['id'])
+
+            date_desde = QDateEdit()
+            date_desde.setCalendarPopup(True)
+            date_desde.setDate(QDate.currentDate())
+            date_desde.setDisplayFormat("dd/MM/yyyy")
+
+            # Selector de turno
+            turno_group = QButtonGroup(dialogo)
+            radio_completo = QRadioButton("🕐 Día completo")
+            radio_manana = QRadioButton("🌅 Mañana")
+            radio_tarde = QRadioButton("🌆 Tarde")
+            radio_completo.setChecked(True)
+
+            turno_group.addButton(radio_completo, 0)
+            turno_group.addButton(radio_manana, 1)
+            turno_group.addButton(radio_tarde, 2)
+
+            turno_layout = QHBoxLayout()
+            turno_layout.addWidget(radio_completo)
+            turno_layout.addWidget(radio_manana)
+            turno_layout.addWidget(radio_tarde)
+
+            form.addRow("🚚 Furgoneta *:", cmb_furgoneta)
+            form.addRow("📅 Fecha desde:", date_desde)
+            form.addRow("⏰ Turno:", turno_layout)
+
+            layout.addLayout(form)
+
+            # Nota
+            nota = QLabel("* Campos obligatorios")
+            nota.setStyleSheet("color: #64748b; font-size: 11px; font-style: italic;")
+            layout.addWidget(nota)
+
+            # Botones
+            layout.addStretch()
+            btn_layout = QHBoxLayout()
+
+            btn_asignar = QPushButton("✅ Asignar")
+            btn_asignar.setMinimumHeight(40)
+            btn_cancelar = QPushButton("❌ Cancelar")
+            btn_cancelar.setMinimumHeight(40)
+
+            btn_layout.addWidget(btn_asignar)
+            btn_layout.addWidget(btn_cancelar)
+            layout.addLayout(btn_layout)
+
+            # Conectar botones
+            btn_cancelar.clicked.connect(dialogo.reject)
+
+            def asignar():
+                furgoneta_id = cmb_furgoneta.currentData()
+                if not furgoneta_id:
+                    QMessageBox.warning(dialogo, "⚠️ Validación", "Debes seleccionar una furgoneta.")
+                    return
+
+                fecha = date_desde.date().toPython().strftime("%Y-%m-%d")
+
+                # Determinar turno
+                if radio_completo.isChecked():
+                    turno = 'completo'
+                elif radio_manana.isChecked():
+                    turno = 'manana'
+                else:
+                    turno = 'tarde'
+
+                try:
+                    from src.services.furgonetas_service import asignar_furgoneta_a_operario
+                    asignar_furgoneta_a_operario(operario_id, furgoneta_id, fecha, turno)
+
+                    turno_texto = {'completo': 'día completo', 'manana': 'turno mañana', 'tarde': 'turno tarde'}[turno]
+                    QMessageBox.information(
+                        dialogo,
+                        "✅ Éxito",
+                        f"Furgoneta asignada a {operario_nombre} correctamente.\n\n"
+                        f"Fecha: {fecha}\n"
+                        f"Turno: {turno_texto}"
+                    )
+                    dialogo.accept()
+                    # Actualizar la etiqueta de furgoneta
+                    self.cambio_operario()
+                except Exception as e:
+                    logger.exception(f"Error al asignar furgoneta: {e}")
+                    QMessageBox.critical(dialogo, "❌ Error", f"Error al asignar:\n{e}")
+
+            btn_asignar.clicked.connect(asignar)
+
+            dialogo.exec()
+
+        except Exception as e:
+            logger.exception(f"Error al abrir diálogo de asignación: {e}")
+            QMessageBox.critical(self, "❌ Error", f"Error al abrir diálogo:\n{e}")
+
+    def eventFilter(self, obj, event):
+        """Captura eventos de teclado para navegación de sugerencias"""
+        if obj == self.txt_buscar and event.type() == event.Type.KeyPress:
+            if self.lista_sugerencias.isVisible():
+                if event.key() == Qt.Key_Down:
+                    # Flecha abajo: pasar al siguiente elemento
+                    current_row = self.lista_sugerencias.currentRow()
+                    if current_row < self.lista_sugerencias.count() - 1:
+                        self.lista_sugerencias.setCurrentRow(current_row + 1)
+                    else:
+                        self.lista_sugerencias.setCurrentRow(0)
+                    return True
+                elif event.key() == Qt.Key_Up:
+                    # Flecha arriba: pasar al elemento anterior
+                    current_row = self.lista_sugerencias.currentRow()
+                    if current_row > 0:
+                        self.lista_sugerencias.setCurrentRow(current_row - 1)
+                    else:
+                        self.lista_sugerencias.setCurrentRow(self.lista_sugerencias.count() - 1)
+                    return True
+        return super().eventFilter(obj, event)
+
     def busqueda_tiempo_real(self):
         """Reinicia el timer de búsqueda cada vez que se escribe"""
         self.timer_busqueda.stop()
         if len(self.txt_buscar.text()) >= 3:
             self.timer_busqueda.start(300)
+
+    def buscar_o_seleccionar(self):
+        """Al presionar Enter: busca o selecciona la sugerencia actual"""
+        if self.lista_sugerencias.isVisible() and self.lista_sugerencias.currentItem():
+            # Si hay lista de sugerencias visible y hay un item seleccionado, seleccionarlo
+            self.seleccionar_sugerencia(self.lista_sugerencias.currentItem())
+        else:
+            # Si no, buscar normalmente
+            self.buscar_articulo()
     
     def buscar_articulo(self):
         """Busca un artículo por EAN, nombre, referencia o palabras clave"""
         texto = self.txt_buscar.text().strip()
-        
+
         if not texto:
             self.lbl_sugerencia.setText("")
+            self.lista_sugerencias.clear()
+            self.lista_sugerencias.setVisible(False)
             return
-        
+
+        # Si el texto es muy corto (<3 caracteres), solo buscar en tiempo real si es un código
+        if len(texto) < 3:
+            self.lista_sugerencias.setVisible(False)
+            return
+
         try:
             con = get_con()
             cur = con.cursor()
@@ -273,39 +533,75 @@ class VentanaMovimientos(QWidget):
                     nombre LIKE ? OR
                     palabras_clave LIKE ?
                 )
-                ORDER BY 
-                    CASE 
+                ORDER BY
+                    CASE
                         WHEN ean = ? THEN 1
                         WHEN ref_proveedor = ? THEN 2
                         WHEN nombre LIKE ? THEN 3
                         ELSE 4
                     END
-                LIMIT 5
+                LIMIT 10
             """, (f"%{texto}%", f"%{texto}%", f"%{texto}%", f"%{texto}%", texto, texto, f"{texto}%"))
             rows = cur.fetchall()
             con.close()
-            
+
             if not rows:
                 self.lbl_sugerencia.setText("❌ No se encontraron artículos")
+                self.lista_sugerencias.setVisible(False)
                 return
-            
-            if len(rows) == 1:
-                # Encontrado exacto, agregar automáticamente
+
+            # Limpiar sugerencias previas
+            self.lista_sugerencias.clear()
+            self.lbl_sugerencia.setText("")
+
+            # Si se presionó Enter y hay coincidencia exacta por EAN/Ref, agregar automáticamente
+            if len(rows) == 1 and (rows[0][3] == texto or rows[0][4] == texto):
                 self.agregar_articulo(rows[0][0], rows[0][1], rows[0][2])
                 self.txt_buscar.clear()
-                self.lbl_sugerencia.setText("✅ Artículo agregado")
-            else:
-                # Múltiples resultados, mostrar sugerencias
-                nombres = [f"• {r[1]}" for r in rows[:3]]
-                self.lbl_sugerencia.setText(f"💡 Sugerencias:\n" + "\n".join(nombres))
-        
+                self.lbl_sugerencia.setText(f"✅ {rows[0][1]} agregado")
+                self.lista_sugerencias.setVisible(False)
+                return
+
+            # Mostrar múltiples sugerencias clickeables
+            for row in rows:
+                texto_item = f"{row[1]}"
+                if row[3]:  # EAN
+                    texto_item += f" | EAN: {row[3]}"
+                if row[4]:  # Ref
+                    texto_item += f" | Ref: {row[4]}"
+                texto_item += f" | {row[2]}"
+
+                item = QListWidgetItem(texto_item)
+                # Guardar datos del artículo en el item
+                item.setData(Qt.UserRole, {
+                    'id': row[0],
+                    'nombre': row[1],
+                    'u_medida': row[2]
+                })
+                self.lista_sugerencias.addItem(item)
+
+            self.lista_sugerencias.setVisible(True)
+            self.lbl_sugerencia.setText(f"💡 {len(rows)} sugerencias - haz click o usa ↓↑ para seleccionar")
+
         except Exception as e:
             self.lbl_sugerencia.setText(f"❌ Error: {e}")
+            self.lista_sugerencias.setVisible(False)
     
     def agregar_desde_busqueda(self):
         """Fuerza la búsqueda y agregado del artículo"""
         self.buscar_articulo()
-    
+
+    def seleccionar_sugerencia(self, item):
+        """Selecciona un artículo de las sugerencias y lo agrega"""
+        articulo = item.data(Qt.UserRole)
+        self.agregar_articulo(articulo['id'], articulo['nombre'], articulo['u_medida'])
+        self.txt_buscar.clear()
+        self.lista_sugerencias.clear()
+        self.lista_sugerencias.setVisible(False)
+        self.lbl_sugerencia.setText(f"✅ {articulo['nombre']} agregado")
+        # Volver el focus al campo de búsqueda para escanear el siguiente
+        self.txt_buscar.setFocus()
+
     def agregar_articulo(self, articulo_id, nombre, u_medida):
         """Agrega un artículo a la lista temporal"""
         cantidad = self.spin_cantidad.value()
@@ -342,10 +638,10 @@ class VentanaMovimientos(QWidget):
             self.tabla_articulos.setItem(i, 2, QTableWidgetItem(art['u_medida']))
             self.tabla_articulos.setItem(i, 3, QTableWidgetItem(f"{art['cantidad']:.2f}"))
             
-            # Botón quitar
-            btn_quitar = QPushButton("🗑️ Quitar")
+            # Botón quitar (centrado)
+            contenedor, btn_quitar = crear_boton_quitar_centrado()
             btn_quitar.clicked.connect(lambda checked, idx=i: self.quitar_articulo(idx))
-            self.tabla_articulos.setCellWidget(i, 4, btn_quitar)
+            self.tabla_articulos.setCellWidget(i, 4, contenedor)
     
     def quitar_articulo(self, index):
         """Quita un artículo de la lista"""
@@ -355,82 +651,99 @@ class VentanaMovimientos(QWidget):
     
     @handle_db_errors("guardar_movimiento")
     def guardar_movimiento(self):
-        """Guarda el movimiento en la base de datos"""
+        """Guarda el movimiento en la base de datos usando el service"""
         # Validaciones
         operario_id = self.cmb_operario.currentData()
-        if not validate_field("operario", operario_id, operario_id is not None, 
+        if not validate_field("operario", operario_id, operario_id is not None,
                              "Debe seleccionar un operario", "movimientos"):
             show_warning("⚠️ Validación", "Debe seleccionar un operario.")
             return
-        
+
         if not validate_field("articulos", self.articulos_temp, len(self.articulos_temp) > 0,
                              "No hay artículos en la lista", "movimientos"):
             show_warning("⚠️ Validación", "Debe agregar al menos un artículo.")
             return
-        
+
         fecha = self.date_fecha.date().toString("yyyy-MM-dd")
         modo = "ENTREGAR" if self.radio_entregar.isChecked() else "RECIBIR"
-        
-        # El decorador @handle_db_errors capturará cualquier error automáticamente
-        con = get_con()
-        cur = con.cursor()
-        
-        # Obtener IDs de almacén y furgoneta
-        cur.execute("SELECT id FROM almacenes WHERE nombre='Almacén' LIMIT 1")
-        almacen_id = cur.fetchone()[0]
-        
-        # Obtener furgoneta del operario
-        cur.execute("""
-            SELECT furgoneta_id FROM asignaciones_furgoneta
-            WHERE operario_id=? AND fecha=?
-        """, (operario_id, fecha))
-        furg_row = cur.fetchone()
-        
-        if not furg_row:
-            show_warning("⚠️ Aviso", "El operario no tiene furgoneta asignada para esta fecha.")
-            con.close()
+
+        # Preparar lista de artículos para el service
+        articulos_para_service = [
+            {'id': art['id'], 'cantidad': art['cantidad']}
+            for art in self.articulos_temp
+        ]
+
+        # Llamar al service para crear los traspasos
+        exito, mensaje, ids_creados = movimientos_service.crear_traspaso_almacen_furgoneta(
+            fecha=fecha,
+            operario_id=operario_id,
+            articulos=articulos_para_service,
+            usuario=session_manager.get_usuario_actual() or "admin",
+            modo=modo
+        )
+
+        if not exito:
+            show_warning("⚠️ Error", mensaje)
             return
-        
-        furgoneta_id = furg_row[0]
-        
-        # Determinar origen y destino según el modo
-        if modo == "ENTREGAR":
-            origen_id = almacen_id
-            destino_id = furgoneta_id
-            tipo_mov = "TRASPASO"
-        else:  # RECIBIR
-            origen_id = furgoneta_id
-            destino_id = almacen_id
-            tipo_mov = "TRASPASO"
-        
-        # Obtener nombre del operario
-        cur.execute("SELECT nombre FROM operarios WHERE id=?", (operario_id,))
-        operario_nombre = cur.fetchone()[0]
-        
-        # Registrar movimientos
-        for art in self.articulos_temp:
-            cur.execute("""
-                INSERT INTO movimientos(fecha, tipo, origen_id, destino_id, articulo_id, cantidad, responsable)
-                VALUES(?, ?, ?, ?, ?, ?, ?)
-            """, (fecha, tipo_mov, origen_id, destino_id, art['id'], art['cantidad'], operario_nombre))
-        
-        con.commit()
-        con.close()
-        
-        # Registrar operación en logs
-        detalles = f"Modo: {modo}, Operario: {operario_nombre}, Artículos: {len(self.articulos_temp)}"
-        log_operacion("movimientos", "crear_traspaso", "usuario_actual", detalles)
-        logger.info(f"Movimiento guardado exitosamente | Operario: {operario_nombre} | Items: {len(self.articulos_temp)}")
-        
+
+        # Guardar en historial (cada artículo individualmente)
+        usuario = session_manager.get_usuario_actual()
+        if usuario:
+            for art in self.articulos_temp:
+                historial_service.guardar_en_historial(
+                    usuario=usuario,
+                    tipo_operacion='movimiento',
+                    articulo_id=art['id'],
+                    articulo_nombre=art['nombre'],
+                    cantidad=art['cantidad'],
+                    u_medida=art['u_medida'],
+                    datos_adicionales={'modo': modo.lower()}
+                )
+
+        # Mensaje de éxito
         modo_texto = "entregado a" if modo == "ENTREGAR" else "recibido de"
         show_info(
             "✅ Éxito",
-            f"Movimiento registrado correctamente.\n\n"
-            f"{len(self.articulos_temp)} artículo(s) {modo_texto} {operario_nombre}."
+            f"Movimiento registrado correctamente.\n\n{mensaje}"
         )
-        
+
         self.limpiar_todo()
-    
+
+    def abrir_historial(self):
+        """Abre el diálogo de historial de operaciones"""
+        usuario = session_manager.get_usuario_actual()
+        if not usuario:
+            show_warning("⚠️ Aviso", "No hay usuario autenticado")
+            return
+
+        from src.dialogs.dialogo_historial import DialogoHistorial
+
+        dialogo = DialogoHistorial(
+            usuario=usuario,
+            tipo_operacion='movimiento',
+            parent=self
+        )
+
+        # Conectar señal para cuando se seleccione un artículo
+        dialogo.articulo_seleccionado.connect(self.agregar_desde_historial)
+
+        dialogo.exec()
+
+    def agregar_desde_historial(self, datos):
+        """Agrega un artículo seleccionado del historial"""
+        self.agregar_articulo(
+            datos['articulo_id'],
+            datos['articulo_nombre'],
+            datos['u_medida']
+        )
+        # Actualizar cantidad si viene del historial
+        if 'cantidad' in datos and datos['cantidad'] > 0:
+            self.spin_cantidad.setValue(datos['cantidad'])
+
+        # Mostrar confirmación
+        self.lbl_sugerencia.setText(f"✅ {datos['articulo_nombre']} agregado desde historial")
+        self.txt_buscar.setFocus()
+
     def limpiar_todo(self):
         """Limpia todos los campos y la lista"""
         self.articulos_temp = []

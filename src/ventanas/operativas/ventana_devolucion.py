@@ -5,12 +5,14 @@ from PySide6.QtWidgets import (
     QDateEdit, QGroupBox, QHeaderView, QTextEdit
 )
 from PySide6.QtCore import Qt, QDate
-from pathlib import Path
-import sqlite3
-import datetime
+from PySide6.QtGui import QShortcut, QKeySequence
 from src.ui.estilos import ESTILO_VENTANA
-from src.ui.widgets_personalizados import SpinBoxClimatot
+from src.ui.widgets_personalizados import SpinBoxClimatot, crear_boton_quitar_centrado
 from src.core.db_utils import get_con
+from src.core.logger import logger
+from src.services import movimientos_service, historial_service
+from src.core.session_manager import session_manager
+from src.repos import movimientos_repo
 
 # ========================================
 # VENTANA DE DEVOLUCIÓN A PROVEEDOR
@@ -19,7 +21,8 @@ class VentanaDevolucion(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("↩️ Devolución a Proveedor")
-        self.setFixedSize(1000, 750)
+        self.setMinimumSize(850, 600)
+        self.resize(1000, 750)
         self.setStyleSheet(ESTILO_VENTANA)
         
         # Lista temporal de artículos a devolver
@@ -187,9 +190,55 @@ class VentanaDevolucion(QWidget):
         botones_layout.addWidget(self.btn_guardar, 3)
         botones_layout.addWidget(self.btn_cancelar, 1)
         botones_layout.addWidget(self.btn_volver, 1)
-        
+
         layout.addLayout(botones_layout)
-    
+
+        # ========== ATAJOS DE TECLADO ==========
+        self.configurar_atajos_teclado()
+
+        # Mostrar ayuda de atajos
+        ayuda_atajos = QLabel(
+            "⌨️ Atajos: F2=Buscar artículo | F4=Motivo | F5=Limpiar | "
+            "Ctrl+Enter=Guardar | Esc=Cancelar"
+        )
+        ayuda_atajos.setStyleSheet(
+            "background-color: #f1f5f9; padding: 8px; border-radius: 4px; "
+            "color: #475569; font-size: 11px; margin-top: 5px;"
+        )
+        ayuda_atajos.setAlignment(Qt.AlignCenter)
+        layout.addWidget(ayuda_atajos)
+
+        # Focus inicial
+        self.cmb_articulo.setFocus()
+
+    def configurar_atajos_teclado(self):
+        """Configura los atajos de teclado para la ventana"""
+        # F2: Focus en búsqueda de artículo
+        shortcut_buscar = QShortcut(QKeySequence("F2"), self)
+        shortcut_buscar.activated.connect(lambda: self.cmb_articulo.setFocus())
+
+        # F4: Focus en motivo
+        shortcut_motivo = QShortcut(QKeySequence("F4"), self)
+        shortcut_motivo.activated.connect(lambda: self.txt_motivo.setFocus())
+
+        # F5: Limpiar formulario
+        shortcut_limpiar = QShortcut(QKeySequence("F5"), self)
+        shortcut_limpiar.activated.connect(self.limpiar)
+
+        # Ctrl+Return: Guardar devolución
+        shortcut_guardar = QShortcut(QKeySequence("Ctrl+Return"), self)
+        shortcut_guardar.activated.connect(self.guardar_devolucion)
+
+        # Esc: Cancelar/limpiar
+        shortcut_cancelar = QShortcut(QKeySequence("Esc"), self)
+        shortcut_cancelar.activated.connect(self.limpiar)
+
+        # Actualizar tooltips
+        self.btn_guardar.setToolTip("Guardar devolución (Ctrl+Enter)")
+        self.btn_cancelar.setToolTip("Cancelar y limpiar (Esc)")
+        self.cmb_articulo.setToolTip("Buscar artículo (F2)")
+        self.txt_motivo.setToolTip("Motivo de devolución (F4)")
+
     def cargar_proveedores(self):
         """Carga los proveedores"""
         try:
@@ -266,9 +315,10 @@ class VentanaDevolucion(QWidget):
             self.tabla_articulos.setItem(i, 2, QTableWidgetItem(art['u_medida']))
             self.tabla_articulos.setItem(i, 3, QTableWidgetItem(f"{art['cantidad']:.2f}"))
             
-            btn_quitar = QPushButton("🗑️ Quitar")
+            # Botón quitar (centrado)
+            contenedor, btn_quitar = crear_boton_quitar_centrado()
             btn_quitar.clicked.connect(lambda checked, idx=i: self.quitar_articulo(idx))
-            self.tabla_articulos.setCellWidget(i, 4, btn_quitar)
+            self.tabla_articulos.setCellWidget(i, 4, contenedor)
     
     def quitar_articulo(self, index):
         """Quita un artículo de la lista"""
@@ -277,29 +327,29 @@ class VentanaDevolucion(QWidget):
             self.actualizar_tabla()
     
     def guardar_devolucion(self):
-        """Guarda la devolución en la base de datos"""
+        """Guarda la devolución usando el service"""
         # Validaciones
         proveedor_id = self.cmb_proveedor.currentData()
         if not proveedor_id:
             QMessageBox.warning(self, "⚠️ Aviso", "Debe seleccionar un proveedor.")
             return
-        
+
         motivo = self.txt_motivo.toPlainText().strip()
         if not motivo:
             QMessageBox.warning(self, "⚠️ Aviso", "Debe especificar el motivo de la devolución.")
             self.txt_motivo.setFocus()
             return
-        
+
         if not self.articulos_temp:
             QMessageBox.warning(self, "⚠️ Aviso", "Debe agregar al menos un artículo.")
             return
-        
+
         fecha = self.date_fecha.date().toString("yyyy-MM-dd")
         albaran_original = self.txt_albaran.text().strip() or None
-        
+
         # Confirmación
         proveedor_nombre = self.cmb_proveedor.currentText()
-        
+
         respuesta = QMessageBox.question(
             self,
             "↩️ Confirmar devolución",
@@ -310,40 +360,59 @@ class VentanaDevolucion(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
+
         if respuesta != QMessageBox.Yes:
             return
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            
-            # Obtener ID del almacén principal
-            cur.execute("SELECT id FROM almacenes WHERE nombre='Almacén' LIMIT 1")
-            almacen_id = cur.fetchone()[0]
-            
-            # Registrar movimientos de devolución
+
+        # Obtener ID del almacén principal
+        almacen = movimientos_repo.get_almacen_by_nombre("Almacén")
+        if not almacen:
+            QMessageBox.critical(self, "❌ Error", "No se encontró el almacén principal.")
+            return
+
+        almacen_id = almacen['id']
+
+        # Preparar datos para el service
+        articulos = [
+            {'articulo_id': art['id'], 'cantidad': art['cantidad']}
+            for art in self.articulos_temp
+        ]
+
+        # Llamar al service
+        exito, mensaje, ids_creados = movimientos_service.crear_devolucion_proveedor(
+            fecha=fecha,
+            almacen_id=almacen_id,
+            articulos=articulos,
+            motivo=motivo,
+            usuario=session_manager.get_usuario_actual() or "admin"
+        )
+
+        if not exito:
+            QMessageBox.critical(self, "❌ Error", f"Error al guardar:\n{mensaje}")
+            return
+
+        # Guardar en historial
+        usuario = session_manager.get_usuario_actual()
+        if usuario:
             for art in self.articulos_temp:
-                cur.execute("""
-                    INSERT INTO movimientos(fecha, tipo, origen_id, destino_id, articulo_id, 
-                                           cantidad, motivo, albaran)
-                    VALUES(?, 'DEVOLUCION', ?, NULL, ?, ?, ?, ?)
-                """, (fecha, almacen_id, art['id'], art['cantidad'], motivo, albaran_original))
-            
-            con.commit()
-            con.close()
-            
-            QMessageBox.information(
-                self,
-                "✅ Éxito",
-                f"Devolución registrada correctamente.\n\n"
-                f"{len(self.articulos_temp)} artículo(s) devueltos a {proveedor_nombre}."
-            )
-            
-            self.limpiar()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al guardar:\n{e}")
+                historial_service.guardar_en_historial(
+                    usuario=usuario,
+                    tipo_operacion='devolucion',
+                    articulo_id=art['id'],
+                    articulo_nombre=art['nombre'],
+                    cantidad=art['cantidad'],
+                    u_medida=art['u_medida'],
+                    datos_adicionales={'proveedor': proveedor_nombre, 'motivo': motivo[:100]}
+                )
+
+        QMessageBox.information(
+            self,
+            "✅ Éxito",
+            f"Devolución registrada correctamente.\n\n"
+            f"{len(self.articulos_temp)} artículo(s) devueltos a {proveedor_nombre}."
+        )
+
+        self.limpiar()
     
     def limpiar(self):
         """Limpia todos los campos"""

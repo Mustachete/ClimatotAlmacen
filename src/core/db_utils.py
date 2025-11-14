@@ -61,15 +61,20 @@ def fetchone(query: str, params: tuple = ()):
 def exec_query(query: str, params: tuple = ()):
     return execute_query(query, params)
 
-def execute_query(query: str, params: tuple = ()) -> None:
+def execute_query(query: str, params: tuple = ()) -> int:
     """
     Ejecuta una consulta de escritura (INSERT, UPDATE, DELETE)
     y confirma automáticamente.
+
+    Returns:
+        Para INSERT: lastrowid del registro insertado
+        Para UPDATE/DELETE: número de filas afectadas
     """
     try:
         with get_connection() as conn:
-            conn.execute(query, params)
+            cursor = conn.execute(query, params)
             conn.commit()
+            return cursor.lastrowid if cursor.lastrowid else cursor.rowcount
     except Exception as e:
         log_error(f"Error ejecutando query: {e}\n{query}")
         raise

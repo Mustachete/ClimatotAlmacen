@@ -595,14 +595,173 @@ class VentanaPedidoIdeal(QWidget):
     # ========================================
     
     def _exportar_todo(self):
-        """Exporta todo el pedido a Excel"""
-        QMessageBox.information(self, "Próximamente",
-            "La exportación completa a Excel estará disponible próximamente")
-    
+        """Exporta todo el pedido a CSV (agrupado por proveedor)"""
+        try:
+            import csv
+            from datetime import datetime
+            from PySide6.QtWidgets import QFileDialog
+
+            if not self.datos_pedido:
+                QMessageBox.warning(
+                    self,
+                    "⚠️ Sin datos",
+                    "No hay datos de pedido para exportar.\n\n"
+                    "Primero calcule el pedido ideal."
+                )
+                return
+
+            # Diálogo para guardar archivo
+            fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            nombre_sugerido = f"pedido_ideal_completo_{fecha_str}.csv"
+
+            ruta, _ = QFileDialog.getSaveFileName(
+                self,
+                "Guardar pedido completo como CSV",
+                nombre_sugerido,
+                "CSV Files (*.csv);;All Files (*)"
+            )
+
+            if not ruta:
+                return  # Usuario canceló
+
+            # Escribir CSV
+            with open(ruta, 'w', newline='', encoding='utf-8-sig') as csvfile:
+                writer = csv.writer(csvfile, delimiter=';')
+
+                # Encabezado
+                writer.writerow([
+                    'Proveedor',
+                    'Contacto',
+                    'Teléfono',
+                    'Email',
+                    'Artículo',
+                    'Ref',
+                    'Stock Actual',
+                    'Consumo Diario',
+                    'Días Sin Stock',
+                    'Cantidad Sugerida',
+                    'Coste Unit.',
+                    'Total'
+                ])
+
+                # Datos agrupados por proveedor
+                for prov_nombre, prov_data in self.datos_pedido.items():
+                    for art in prov_data['articulos']:
+                        writer.writerow([
+                            prov_nombre,
+                            prov_data.get('proveedor_contacto', ''),
+                            prov_data.get('proveedor_telefono', ''),
+                            prov_data.get('proveedor_email', ''),
+                            art['nombre'],
+                            art.get('ref', ''),
+                            f"{art['stock_actual']:.2f}".replace('.', ','),
+                            f"{art['consumo_diario']:.2f}".replace('.', ','),
+                            f"{art['dias_sin_stock']:.0f}",
+                            f"{art['cantidad_sugerida']:.2f}".replace('.', ','),
+                            f"{art['coste_unit']:.2f}".replace('.', ','),
+                            f"{art['total']:.2f}".replace('.', ',')
+                        ])
+
+            QMessageBox.information(
+                self,
+                "✅ Exportación exitosa",
+                f"Pedido completo exportado a:\n\n{ruta}\n\n"
+                f"Total de proveedores: {len(self.datos_pedido)}"
+            )
+
+        except Exception as e:
+            logger.exception(f"Error al exportar pedido completo: {e}")
+            QMessageBox.critical(
+                self,
+                "❌ Error",
+                f"Error al exportar:\n{e}"
+            )
+
     def _exportar_proveedor_excel(self, proveedor_info: Dict[str, Any]):
-        """Exporta el pedido de un proveedor a Excel"""
-        QMessageBox.information(self, "Próximamente",
-            f"Se exportará el pedido de {proveedor_info['proveedor_nombre']} a Excel")
+        """Exporta el pedido de un proveedor a CSV"""
+        try:
+            import csv
+            from datetime import datetime
+            from PySide6.QtWidgets import QFileDialog
+
+            proveedor_nombre = proveedor_info['proveedor_nombre']
+            articulos = proveedor_info['articulos']
+
+            # Diálogo para guardar archivo
+            fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Limpiar nombre de proveedor para nombre de archivo
+            nombre_limpio = "".join(c if c.isalnum() else "_" for c in proveedor_nombre)
+            nombre_sugerido = f"pedido_{nombre_limpio}_{fecha_str}.csv"
+
+            ruta, _ = QFileDialog.getSaveFileName(
+                self,
+                f"Guardar pedido de {proveedor_nombre} como CSV",
+                nombre_sugerido,
+                "CSV Files (*.csv);;All Files (*)"
+            )
+
+            if not ruta:
+                return  # Usuario canceló
+
+            # Escribir CSV
+            with open(ruta, 'w', newline='', encoding='utf-8-sig') as csvfile:
+                writer = csv.writer(csvfile, delimiter=';')
+
+                # Encabezado con info del proveedor
+                writer.writerow(['PEDIDO SUGERIDO'])
+                writer.writerow(['Proveedor:', proveedor_nombre])
+                writer.writerow(['Contacto:', proveedor_info.get('proveedor_contacto', '')])
+                writer.writerow(['Teléfono:', proveedor_info.get('proveedor_telefono', '')])
+                writer.writerow(['Email:', proveedor_info.get('proveedor_email', '')])
+                writer.writerow(['Fecha:', datetime.now().strftime("%d/%m/%Y %H:%M")])
+                writer.writerow([])  # Línea en blanco
+
+                # Encabezado de artículos
+                writer.writerow([
+                    'Artículo',
+                    'Ref',
+                    'Stock Actual',
+                    'Consumo Diario',
+                    'Días Sin Stock',
+                    'Cantidad Sugerida',
+                    'Coste Unit.',
+                    'Total'
+                ])
+
+                # Datos
+                total_general = 0
+                for art in articulos:
+                    writer.writerow([
+                        art['nombre'],
+                        art.get('ref', ''),
+                        f"{art['stock_actual']:.2f}".replace('.', ','),
+                        f"{art['consumo_diario']:.2f}".replace('.', ','),
+                        f"{art['dias_sin_stock']:.0f}",
+                        f"{art['cantidad_sugerida']:.2f}".replace('.', ','),
+                        f"{art['coste_unit']:.2f}".replace('.', ','),
+                        f"{art['total']:.2f}".replace('.', ',')
+                    ])
+                    total_general += art['total']
+
+                # Total
+                writer.writerow([])
+                writer.writerow(['', '', '', '', '', '', 'TOTAL:', f"{total_general:.2f}".replace('.', ',')])
+
+            QMessageBox.information(
+                self,
+                "✅ Exportación exitosa",
+                f"Pedido de {proveedor_nombre} exportado a:\n\n{ruta}\n\n"
+                f"Total de artículos: {len(articulos)}\n"
+                f"Importe total: {total_general:.2f} €"
+            )
+
+        except Exception as e:
+            logger.exception(f"Error al exportar pedido del proveedor: {e}")
+            QMessageBox.critical(
+                self,
+                "❌ Error",
+                f"Error al exportar:\n{e}"
+            )
     
     def _exportar_proveedor_pdf(self, proveedor_info: Dict[str, Any]):
         """Genera PDF del pedido de un proveedor"""

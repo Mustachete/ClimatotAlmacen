@@ -3,16 +3,19 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
     QTableWidgetItem, QLineEdit, QLabel, QMessageBox, QDialog,
     QFormLayout, QHeaderView, QComboBox, QDateEdit, QSpinBox,
-    QDoubleSpinBox, QGroupBox, QScrollArea
+    QDoubleSpinBox, QGroupBox, QScrollArea, QCheckBox
 )
 from PySide6.QtCore import Qt, QDate
-from pathlib import Path
-import sqlite3
+from PySide6.QtGui import QFont
 import datetime
 from src.ui.estilos import ESTILO_DIALOGO, ESTILO_VENTANA
-from src.ui.widgets_personalizados import SpinBoxClimatot, BotonQuitar
+from src.ui.widgets_personalizados import SpinBoxClimatot, crear_boton_quitar_centrado
 from src.core.db_utils import get_con
+from src.core.logger import logger
 from src.dialogs.buscador_articulos import BuscadorArticulos
+from src.services import movimientos_service, historial_service
+from src.core.session_manager import session_manager
+from src.repos import movimientos_repo
 
 def today_str():
     """Devuelve fecha actual en formato YYYY-MM-DD"""
@@ -25,7 +28,8 @@ class DialogoRecepcion(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("📦 Recepción de Albarán")
-        self.setFixedSize(950, 700)
+        self.setMinimumSize(800, 600)
+        self.resize(950, 700)
         self.setStyleSheet(ESTILO_DIALOGO)
         
         # Lista temporal de artículos a recibir
@@ -53,12 +57,12 @@ class DialogoRecepcion(QDialog):
         
         # Botón para crear proveedor
         layout_prov = QHBoxLayout()
-        layout_prov.addWidget(self.cmb_proveedor)
-        btn_nuevo_prov = QPushButton("➕")
-        btn_nuevo_prov.setFixedSize(30, 30)
+        layout_prov.addWidget(self.cmb_proveedor, stretch=1)  # El combo ocupa el espacio disponible
+        btn_nuevo_prov = QPushButton("➕ Nuevo")
+        btn_nuevo_prov.setMinimumWidth(100)  # Ancho mínimo suficiente para el texto
         btn_nuevo_prov.setToolTip("Crear nuevo proveedor")
         btn_nuevo_prov.clicked.connect(self.crear_proveedor)
-        layout_prov.addWidget(btn_nuevo_prov)
+        layout_prov.addWidget(btn_nuevo_prov, stretch=0)  # El botón mantiene su tamaño
         
         form_albaran.addRow("📋 Nº Albarán *:", self.txt_num_albaran)
         form_albaran.addRow("📅 Fecha:", self.date_fecha)
@@ -98,7 +102,7 @@ class DialogoRecepcion(QDialog):
         
         self.btn_agregar = QPushButton("➕ Agregar")
         self.btn_agregar.clicked.connect(self.agregar_articulo)
-        
+
         h1.addWidget(lbl_art)
         h1.addWidget(self.buscador, 3)
         h1.addWidget(lbl_cant)
@@ -106,8 +110,26 @@ class DialogoRecepcion(QDialog):
         h1.addWidget(lbl_coste)
         h1.addWidget(self.spin_coste, 1)
         h1.addWidget(self.btn_agregar)
-        
+
         layout_articulos.addLayout(h1)
+
+        # Modo escaneo rápido
+        h_modo = QHBoxLayout()
+        self.chk_escaneo_rapido = QCheckBox("⚡ Modo Escaneo Rápido")
+        self.chk_escaneo_rapido.setToolTip(
+            "Al escanear un código, se añade automáticamente sin necesidad de hacer click en Agregar"
+        )
+        self.chk_escaneo_rapido.setStyleSheet("font-weight: bold; color: #1e3a8a;")
+
+        self.chk_recordar_coste = QCheckBox("💰 Recordar último coste")
+        self.chk_recordar_coste.setChecked(True)
+        self.chk_recordar_coste.setToolTip("Usa el coste del artículo anterior para los siguientes")
+
+        h_modo.addWidget(self.chk_escaneo_rapido)
+        h_modo.addSpacing(20)
+        h_modo.addWidget(self.chk_recordar_coste)
+        h_modo.addStretch()
+        layout_articulos.addLayout(h_modo)
         
         # Tabla de artículos agregados
         self.tabla_articulos = QTableWidget()
@@ -118,10 +140,20 @@ class DialogoRecepcion(QDialog):
         self.tabla_articulos.setMaximumHeight(250)
         
         layout_articulos.addWidget(self.tabla_articulos)
-        
+
+        # Panel de resumen
+        self.lbl_resumen = QLabel("📊 Total: 0 artículos | Coste total: € 0.00")
+        self.lbl_resumen.setStyleSheet(
+            "background-color: #f0f9ff; border: 2px solid #1e3a8a; "
+            "border-radius: 5px; padding: 10px; font-size: 14px; font-weight: bold; "
+            "color: #1e40af; margin-top: 5px;"
+        )
+        self.lbl_resumen.setAlignment(Qt.AlignCenter)
+        layout_articulos.addWidget(self.lbl_resumen)
+
         grupo_articulos.setLayout(layout_articulos)
         layout.addWidget(grupo_articulos)
-        
+
         # Nota
         nota = QLabel("* El número de albarán es obligatorio. Si ya existe, se preguntará si desea continuar.")
         nota.setStyleSheet("color: gray; font-size: 11px; margin: 5px;")
@@ -140,17 +172,28 @@ class DialogoRecepcion(QDialog):
         btn_layout.addWidget(self.btn_guardar)
         btn_layout.addWidget(self.btn_cancelar)
         layout.addLayout(btn_layout)
-        
+
+        # Configurar teclas rápidas
+        self.btn_guardar.setShortcut("Ctrl+Return")
+        self.btn_cancelar.setShortcut("Esc")
+
         # Focus inicial
         self.txt_num_albaran.setFocus()
     
     def on_articulo_seleccionado(self, articulo):
         """Cuando se selecciona un artículo, autocompletar el coste"""
         self.articulo_actual = articulo
-        
+
         # Autocompletar coste si existe
         if articulo['coste'] > 0:
             self.spin_coste.setValue(articulo['coste'])
+        elif self.chk_recordar_coste.isChecked() and hasattr(self, 'ultimo_coste'):
+            # Usar el último coste si está activado recordar
+            self.spin_coste.setValue(self.ultimo_coste)
+
+        # Si está en modo escaneo rápido, agregar automáticamente
+        if self.chk_escaneo_rapido.isChecked():
+            self.agregar_articulo()
     
     def actualizar_filtro_proveedor(self):
         """Filtra artículos por el proveedor seleccionado"""
@@ -188,7 +231,15 @@ class DialogoRecepcion(QDialog):
     
     def agregar_articulo(self):
         '''Agrega un artículo a la lista temporal'''
-        
+
+        # Si hay texto en el buscador pero no hay artículo seleccionado, forzar búsqueda
+        if not self.articulo_actual and self.buscador.txt_buscar.text().strip():
+            self.buscador.buscar_exacto()
+            # Esperar un momento para que se procese la búsqueda
+            # Si aún no hay artículo después de la búsqueda, significa que no existe
+            if not self.articulo_actual:
+                return  # La búsqueda ya habrá mostrado el diálogo de crear
+
         # Verificar que haya un artículo seleccionado
         if not self.articulo_actual:
              QMessageBox.warning(self, "⚠️ Aviso", "Debe buscar y seleccionar un artículo primero.")
@@ -210,21 +261,33 @@ class DialogoRecepcion(QDialog):
             'id': articulo['id'],
             'nombre': articulo['nombre'],
             'cantidad': cantidad,
-            'coste': coste
+            'coste': coste,
+            'u_medida': articulo['u_medida']
         })
-       
+
+        # Guardar último coste para recordar
+        self.ultimo_coste = coste
+
         self.actualizar_tabla_articulos()
-       
+
         # Resetear campos
         self.buscador.limpiar()
         self.spin_cantidad.setValue(1)
-        self.spin_coste.setValue(0)
+
+        # Solo resetear coste si NO está marcado recordar
+        if not self.chk_recordar_coste.isChecked():
+            self.spin_coste.setValue(0)
+
         self.buscador.txt_buscar.setFocus()
+        self.articulo_actual = None
     
     def actualizar_tabla_articulos(self):
         """Actualiza la tabla con los artículos temporales"""
         self.tabla_articulos.setRowCount(len(self.articulos_temp))
-        
+
+        total_articulos = 0
+        coste_total = 0.0
+
         for i, art in enumerate(self.articulos_temp):
             # ID
             self.tabla_articulos.setItem(i, 0, QTableWidgetItem(str(art['id'])))
@@ -234,25 +297,27 @@ class DialogoRecepcion(QDialog):
             self.tabla_articulos.setItem(i, 2, QTableWidgetItem(f"{art['cantidad']:.2f}"))
             # Coste
             self.tabla_articulos.setItem(i, 3, QTableWidgetItem(f"€ {art['coste']:.2f}"))
-            
-            # Botón quitar
-            btn_quitar = BotonQuitar()
+
+            # Botón quitar (centrado)
+            contenedor, btn_quitar = crear_boton_quitar_centrado()
             btn_quitar.clicked.connect(lambda checked, idx=i: self.quitar_articulo(idx))
-            self.tabla_articulos.setCellWidget(i, 4, btn_quitar)
+            self.tabla_articulos.setCellWidget(i, 4, contenedor)
+
+            # Acumular totales
+            total_articulos += art['cantidad']
+            coste_total += art['cantidad'] * art['coste']
+
+        # Actualizar panel de resumen
+        self.lbl_resumen.setText(
+            f"📊 Total: {len(self.articulos_temp)} artículos ({total_articulos:.2f} unidades) | "
+            f"Coste total: € {coste_total:,.2f}"
+        )
     
     def quitar_articulo(self, index):
         """Quita un artículo de la lista temporal"""
         if 0 <= index < len(self.articulos_temp):
             del self.articulos_temp[index]
             self.actualizar_tabla_articulos()
-    
-    def on_articulo_seleccionado(self, articulo):
-        '''Cuando se selecciona un artículo, autocompletar el coste'''
-        self.articulo_actual = articulo
-        
-        # Autocompletar coste si existe
-        if articulo['coste'] > 0:
-            self.spin_coste.setValue(articulo['coste'])
    
     def actualizar_filtro_proveedor(self):
         '''Filtra artículos por el proveedor seleccionado'''
@@ -277,56 +342,101 @@ class DialogoRecepcion(QDialog):
         
         fecha = self.date_fecha.date().toString("yyyy-MM-dd")
         proveedor_id = self.cmb_proveedor.currentData()
-        
+
         try:
             con = get_con()
             cur = con.cursor()
-            
-            # Verificar si el albarán ya existe
-            cur.execute("SELECT albaran FROM albaranes WHERE albaran=?", (num_albaran,))
+
+            # Verificar si el albarán ya existe (mismo proveedor + número + fecha)
+            cur.execute("""
+                SELECT albaran FROM albaranes
+                WHERE albaran=? AND proveedor_id=? AND fecha=?
+            """, (num_albaran, proveedor_id, fecha))
             if cur.fetchone():
-                respuesta = QMessageBox.question(
+                QMessageBox.warning(
                     self,
                     "⚠️ Albarán duplicado",
-                    f"El albarán '{num_albaran}' ya está registrado.\\n\\n"
-                    "¿Desea continuar de todos modos?\\n",
+                    f"Ya existe un albarán con el mismo número '{num_albaran}'\n"
+                    f"del mismo proveedor en la fecha {self.date_fecha.date().toString('dd/MM/yyyy')}.\n\n"
+                    "No se pueden registrar albaranes duplicados.\n"
+                    "Si necesita modificarlo, contacte al administrador."
+                )
+                self.txt_num_albaran.setFocus()
+                con.close()
+                return
+
+            # Advertencia si existe el mismo número pero de otro proveedor o fecha diferente
+            cur.execute("SELECT proveedor_id, fecha FROM albaranes WHERE albaran=?", (num_albaran,))
+            alb_existente = cur.fetchone()
+            if alb_existente:
+                respuesta = QMessageBox.question(
+                    self,
+                    "⚠️ Albarán con número similar",
+                    f"Ya existe un albarán con el número '{num_albaran}'\n"
+                    "pero de otro proveedor o fecha diferente.\n\n"
+                    "¿Desea continuar de todos modos?",
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.No
                 )
                 if respuesta != QMessageBox.Yes:
                     con.close()
                     return
-            else:
-                # Registrar el albarán
-                cur.execute(
-                    "INSERT INTO albaranes(albaran, proveedor_id, fecha) VALUES(?,?,?)",
-                    (num_albaran, proveedor_id, fecha)
-                )
-            
-            # Obtener ID del almacén principal
-            cur.execute("SELECT id FROM almacenes WHERE nombre='Almacén' LIMIT 1")
-            almacen_id = cur.fetchone()[0]
-            
-            # Registrar movimientos de entrada para cada artículo
-            for art in self.articulos_temp:
-                cur.execute("""
-                    INSERT INTO movimientos(fecha, tipo, origen_id, destino_id, articulo_id, 
-                                           cantidad, coste_unit, albaran)
-                    VALUES(?, 'ENTRADA', NULL, ?, ?, ?, ?, ?)
-                """, (fecha, almacen_id, art['id'], art['cantidad'], art['coste'], num_albaran))
-            
+
+            # Registrar el albarán
+            cur.execute(
+                "INSERT INTO albaranes(albaran, proveedor_id, fecha) VALUES(?,?,?)",
+                (num_albaran, proveedor_id, fecha)
+            )
+
             con.commit()
             con.close()
-            
+
+            # Preparar datos para el service
+            articulos = [
+                {
+                    'articulo_id': art['id'],
+                    'cantidad': art['cantidad'],
+                    'coste_unit': art['coste']
+                }
+                for art in self.articulos_temp
+            ]
+
+            # Llamar al service para crear la recepción
+            exito, mensaje, ids_creados = movimientos_service.crear_recepcion_material(
+                fecha=fecha,
+                articulos=articulos,
+                almacen_nombre="Almacén",
+                albaran=num_albaran,
+                usuario=session_manager.get_usuario_actual() or "admin"
+            )
+
+            if not exito:
+                QMessageBox.critical(self, "❌ Error", f"Error al guardar:\\n{mensaje}")
+                return
+
+            # Guardar en historial
+            usuario = session_manager.get_usuario_actual()
+            if usuario:
+                for art in self.articulos_temp:
+                    historial_service.guardar_en_historial(
+                        usuario=usuario,
+                        tipo_operacion='recepcion',
+                        articulo_id=art['id'],
+                        articulo_nombre=art['nombre'],
+                        cantidad=art['cantidad'],
+                        u_medida=art['u_medida'],
+                        datos_adicionales={'albaran': num_albaran, 'coste': art['coste']}
+                    )
+
             QMessageBox.information(
-                self, 
-                "✅ Éxito", 
-                f"Albarán '{num_albaran}' registrado correctamente.\\n\\n"
-                f"Se han añadido {len(self.articulos_temp)} artículo(s) al almacén."
+                self,
+                "✅ Éxito",
+                f"Albarán '{num_albaran}' registrado correctamente.\\n\\n{mensaje}"
             )
             self.accept()
-            
+
         except Exception as e:
+            logger.error(f"Error en recepción: {e}")
             QMessageBox.critical(self, "❌ Error", f"Error al guardar:\\n{e}")
 
 # ========================================

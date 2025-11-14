@@ -15,7 +15,7 @@ CARACTERÍSTICAS:
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLineEdit, QPushButton, QListWidget,
     QLabel, QMessageBox, QDialog, QFormLayout, QComboBox, QTextEdit,
-    QListWidgetItem
+    QListWidgetItem, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QIcon
@@ -79,30 +79,16 @@ class BuscadorArticulos(QWidget):
             }
         """)
         
+        # Campo de búsqueda ocupa el espacio disponible
+        busqueda_layout.addWidget(self.txt_buscar, stretch=1)
+
         # Botón lupa (búsqueda avanzada)
         if mostrar_boton_lupa:
-            self.btn_lupa = QPushButton("🔍")
-            self.btn_lupa.setFixedSize(40, 40)
+            self.btn_lupa = QPushButton("🔍 Buscar")
+            self.btn_lupa.setMinimumWidth(100)
             self.btn_lupa.setToolTip("Búsqueda avanzada")
             self.btn_lupa.clicked.connect(self.busqueda_avanzada)
-            self.btn_lupa.setStyleSheet("""
-                QPushButton {
-                    background-color: #1e3a8a;
-                    color: white;
-                    border: none;
-                    border-radius: 5px;
-                    font-size: 18px;
-                }
-                QPushButton:hover {
-                    background-color: #1e40af;
-                }
-                QPushButton:pressed {
-                    background-color: #1e3a8a;
-                }
-            """)
-            busqueda_layout.addWidget(self.btn_lupa)
-        
-        busqueda_layout.addWidget(self.txt_buscar)
+            busqueda_layout.addWidget(self.btn_lupa, stretch=0)
         layout.addLayout(busqueda_layout)
         
         # ========== LISTA DE SUGERENCIAS ==========
@@ -357,9 +343,13 @@ class BuscadorArticulos(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
+
         if respuesta == QMessageBox.Yes:
             self.abrir_dialogo_nuevo_articulo(texto_busqueda)
+        else:
+            # Usuario canceló - limpiar el campo para que pueda buscar otro
+            self.limpiar()
+            self.txt_buscar.setFocus()
     
     def abrir_dialogo_nuevo_articulo(self, referencia_inicial=""):
         """Abre el diálogo para crear un nuevo artículo"""
@@ -422,9 +412,8 @@ class DialogoBusquedaAvanzada(QDialog):
         filtros_layout.addWidget(self.txt_buscar)
         
         layout.addLayout(filtros_layout)
-        
+
         # Tabla de resultados
-        from PySide6.QtWidgets import QTableWidget, QHeaderView
         self.tabla = QTableWidget()
         self.tabla.setColumnCount(5)
         self.tabla.setHorizontalHeaderLabels(["ID", "Nombre", "EAN", "Ref", "U.Medida"])
@@ -460,11 +449,13 @@ class DialogoBusquedaAvanzada(QDialog):
             cur.execute("SELECT id, nombre FROM familias ORDER BY nombre")
             rows = cur.fetchall()
             con.close()
-            
+
             for row in rows:
                 self.cmb_familia.addItem(row[1], row[0])
-        except:
-            pass
+        except Exception as e:
+            from src.core.logger import logger
+            logger.exception(f"Error al cargar familias en buscador avanzado: {e}")
+            # Continuar sin familias - el combo tendrá solo "(Todas)"
     
     def cargar_articulos(self, filtro_texto="", filtro_familia=None):
         """Carga artículos con filtros"""

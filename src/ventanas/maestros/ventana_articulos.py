@@ -6,20 +6,22 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox, QScrollArea, QGroupBox
 )
 from PySide6.QtCore import Qt
-from pathlib import Path
-import sqlite3
 from src.ui.estilos import ESTILO_DIALOGO, ESTILO_VENTANA
-from src.core.db_utils import get_con
+from src.services import articulos_service
+from src.core.session_manager import session_manager
+from src.repos import articulos_repo
 
 # ========================================
 # DIÁLOGO PARA AÑADIR/EDITAR ARTÍCULO
 # ========================================
 class DialogoArticulo(QDialog):
-    def __init__(self, parent=None, articulo_id=None):
+    def __init__(self, parent=None, articulo_id=None, referencia_inicial=""):
         super().__init__(parent)
         self.articulo_id = articulo_id
+        self.referencia_inicial = referencia_inicial
         self.setWindowTitle("✏️ Editar Artículo" if articulo_id else "➕ Nuevo Artículo")
-        self.setFixedSize(700, 700)
+        self.setMinimumSize(600, 600)
+        self.resize(700, 700)
         self.setStyleSheet(ESTILO_DIALOGO)
         
         # Scroll area para todo el contenido
@@ -158,117 +160,96 @@ class DialogoArticulo(QDialog):
         # Si estamos editando, cargar datos
         if self.articulo_id:
             self.cargar_datos()
-        
-        # Focus en el campo de nombre
-        self.txt_nombre.setFocus()
+        elif self.referencia_inicial:
+            # Si es un artículo nuevo con referencia inicial, pre-llenar el campo
+            self.txt_ref.setText(self.referencia_inicial)
+            self.txt_nombre.setFocus()
+        else:
+            # Focus en el campo de nombre
+            self.txt_nombre.setFocus()
     
     def cargar_familias(self):
         """Carga las familias en el combo"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("SELECT id, nombre FROM familias ORDER BY nombre")
-            rows = cur.fetchall()
-            con.close()
-            
+            familias = articulos_repo.get_familias()
+
             self.cmb_familia.addItem("(Sin familia)", None)
-            for row in rows:
-                self.cmb_familia.addItem(row[1], row[0])
+            for fam in familias:
+                self.cmb_familia.addItem(fam['nombre'], fam['id'])
         except Exception:
             pass
     
     def cargar_ubicaciones(self):
         """Carga las ubicaciones en el combo"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("SELECT id, nombre FROM ubicaciones ORDER BY nombre")
-            rows = cur.fetchall()
-            con.close()
-            
+            ubicaciones = articulos_repo.get_ubicaciones()
+
             self.cmb_ubicacion.addItem("(Sin ubicación)", None)
-            for row in rows:
-                self.cmb_ubicacion.addItem(row[1], row[0])
+            for ubi in ubicaciones:
+                self.cmb_ubicacion.addItem(ubi['nombre'], ubi['id'])
         except Exception:
             pass
     
     def cargar_proveedores(self):
         """Carga los proveedores en el combo"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("SELECT id, nombre FROM proveedores ORDER BY nombre")
-            rows = cur.fetchall()
-            con.close()
-            
+            proveedores = articulos_repo.get_proveedores()
+
             self.cmb_proveedor.addItem("(Sin proveedor)", None)
-            for row in rows:
-                self.cmb_proveedor.addItem(row[1], row[0])
+            for prov in proveedores:
+                self.cmb_proveedor.addItem(prov['nombre'], prov['id'])
         except Exception:
             pass
     
     def cargar_datos(self):
         """Carga los datos del artículo a editar"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("""
-                SELECT ean, ref_proveedor, nombre, palabras_clave, u_medida, min_alerta,
-                       ubicacion_id, proveedor_id, familia_id, marca, coste, pvp_sin, iva, activo
-                FROM articulos WHERE id=?
-            """, (self.articulo_id,))
-            row = cur.fetchone()
-            con.close()
-            
-            if row:
-                self.txt_ean.setText(row[0] or "")
-                self.txt_ref.setText(row[1] or "")
-                self.txt_nombre.setText(row[2] or "")
-                self.txt_palabras.setPlainText(row[3] or "")
-                
+            articulo = articulos_service.obtener_articulo(self.articulo_id)
+
+            if articulo:
+                self.txt_ean.setText(articulo['ean'] or "")
+                self.txt_ref.setText(articulo['ref_proveedor'] or "")
+                self.txt_nombre.setText(articulo['nombre'] or "")
+                self.txt_palabras.setPlainText(articulo['palabras_clave'] or "")
+
                 # Unidad de medida
-                idx = self.cmb_unidad.findText(row[4] or "unidad")
+                idx = self.cmb_unidad.findText(articulo['u_medida'] or "unidad")
                 if idx >= 0:
                     self.cmb_unidad.setCurrentIndex(idx)
-                
-                self.spin_min.setValue(row[5] or 0)
-                
+
+                self.spin_min.setValue(articulo['min_alerta'] or 0)
+
                 # Ubicación
-                if row[6]:
-                    idx = self.cmb_ubicacion.findData(row[6])
+                if articulo['ubicacion_id']:
+                    idx = self.cmb_ubicacion.findData(articulo['ubicacion_id'])
                     if idx >= 0:
                         self.cmb_ubicacion.setCurrentIndex(idx)
-                
+
                 # Proveedor
-                if row[7]:
-                    idx = self.cmb_proveedor.findData(row[7])
+                if articulo['proveedor_id']:
+                    idx = self.cmb_proveedor.findData(articulo['proveedor_id'])
                     if idx >= 0:
                         self.cmb_proveedor.setCurrentIndex(idx)
-                
+
                 # Familia
-                if row[8]:
-                    idx = self.cmb_familia.findData(row[8])
+                if articulo['familia_id']:
+                    idx = self.cmb_familia.findData(articulo['familia_id'])
                     if idx >= 0:
                         self.cmb_familia.setCurrentIndex(idx)
-                
-                self.txt_marca.setText(row[9] or "")
-                self.spin_coste.setValue(row[10] or 0)
-                self.spin_pvp.setValue(row[11] or 0)
-                self.spin_iva.setValue(row[12] or 21)
-                self.chk_activo.setChecked(row[13] == 1)
-                
+
+                self.txt_marca.setText(articulo['marca'] or "")
+                self.spin_coste.setValue(articulo['coste'] or 0)
+                self.spin_pvp.setValue(articulo['pvp_sin'] or 0)
+                self.spin_iva.setValue(articulo['iva'] or 21)
+                self.chk_activo.setChecked(articulo['activo'] == 1)
+
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar datos:\n{e}")
     
     def guardar(self):
         """Guarda el artículo (nuevo o editado)"""
         nombre = self.txt_nombre.text().strip()
-        
-        if not nombre:
-            QMessageBox.warning(self, "⚠️ Aviso", "El nombre del artículo es obligatorio.")
-            self.txt_nombre.setFocus()
-            return
-        
+
         # Recoger todos los datos
         ean = self.txt_ean.text().strip() or None
         ref = self.txt_ref.text().strip() or None
@@ -282,49 +263,55 @@ class DialogoArticulo(QDialog):
         coste = self.spin_coste.value()
         pvp = self.spin_pvp.value()
         iva = self.spin_iva.value()
-        activo = 1 if self.chk_activo.isChecked() else 0
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            
-            if self.articulo_id:
-                # Editar existente
-                cur.execute("""
-                    UPDATE articulos 
-                    SET ean=?, ref_proveedor=?, nombre=?, palabras_clave=?, u_medida=?,
-                        min_alerta=?, ubicacion_id=?, proveedor_id=?, familia_id=?,
-                        marca=?, coste=?, pvp_sin=?, iva=?, activo=?
-                    WHERE id=?
-                """, (ean, ref, nombre, palabras, u_medida, min_alerta, ubicacion_id,
-                      proveedor_id, familia_id, marca, coste, pvp, iva, activo, self.articulo_id))
-                mensaje = f"✅ Artículo '{nombre}' actualizado correctamente."
-            else:
-                # Crear nuevo
-                cur.execute("""
-                    INSERT INTO articulos(ean, ref_proveedor, nombre, palabras_clave, u_medida,
-                                         min_alerta, ubicacion_id, proveedor_id, familia_id,
-                                         marca, coste, pvp_sin, iva, activo)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """, (ean, ref, nombre, palabras, u_medida, min_alerta, ubicacion_id,
-                      proveedor_id, familia_id, marca, coste, pvp, iva, activo))
-                mensaje = f"✅ Artículo '{nombre}' creado correctamente."
-            
-            con.commit()
-            con.close()
-            
-            QMessageBox.information(self, "✅ Éxito", mensaje)
-            self.accept()
-            
-        except sqlite3.IntegrityError as e:
-            if "ean" in str(e).lower():
-                QMessageBox.warning(self, "⚠️ Aviso", f"Ya existe un artículo con el EAN '{ean}'.")
-            elif "ref_proveedor" in str(e).lower():
-                QMessageBox.warning(self, "⚠️ Aviso", f"Ya existe un artículo con la referencia '{ref}'.")
-            else:
-                QMessageBox.warning(self, "⚠️ Aviso", "Ya existe un artículo con esos datos únicos.")
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al guardar:\n{e}")
+        activo = self.chk_activo.isChecked()
+
+        # Llamar al service
+        if self.articulo_id:
+            # Editar existente
+            exito, mensaje = articulos_service.actualizar_articulo(
+                articulo_id=self.articulo_id,
+                nombre=nombre,
+                ean=ean,
+                ref_proveedor=ref,
+                palabras_clave=palabras,
+                u_medida=u_medida,
+                min_alerta=min_alerta,
+                ubicacion_id=ubicacion_id,
+                proveedor_id=proveedor_id,
+                familia_id=familia_id,
+                marca=marca,
+                coste=coste,
+                pvp_sin=pvp,
+                iva=iva,
+                activo=activo,
+                usuario=session_manager.get_usuario_actual() or "admin"
+            )
+        else:
+            # Crear nuevo
+            exito, mensaje, articulo_id = articulos_service.crear_articulo(
+                nombre=nombre,
+                ean=ean,
+                ref_proveedor=ref,
+                palabras_clave=palabras,
+                u_medida=u_medida,
+                min_alerta=min_alerta,
+                ubicacion_id=ubicacion_id,
+                proveedor_id=proveedor_id,
+                familia_id=familia_id,
+                marca=marca,
+                coste=coste,
+                pvp_sin=pvp,
+                iva=iva,
+                activo=activo,
+                usuario=session_manager.get_usuario_actual() or "admin"
+            )
+
+        if not exito:
+            QMessageBox.warning(self, "⚠️ Error", mensaje)
+            return
+
+        QMessageBox.information(self, "✅ Éxito", mensaje)
+        self.accept()
 
 # ========================================
 # VENTANA PRINCIPAL DE ARTÍCULOS
@@ -426,82 +413,61 @@ class VentanaArticulos(QWidget):
     def cargar_familias_filtro(self):
         """Carga las familias en el combo de filtro"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("SELECT id, nombre FROM familias ORDER BY nombre")
-            rows = cur.fetchall()
-            con.close()
-            
-            for row in rows:
-                self.cmb_familia_filtro.addItem(row[1], row[0])
+            familias = articulos_repo.get_familias()
+
+            for fam in familias:
+                self.cmb_familia_filtro.addItem(fam['nombre'], fam['id'])
         except Exception:
             pass
     
     def cargar_articulos(self):
         """Carga los artículos en la tabla"""
-        filtro_texto = self.txt_buscar.text().strip()
+        filtro_texto = self.txt_buscar.text().strip() or None
         familia_id = self.cmb_familia_filtro.currentData()
         estado = self.cmb_estado.currentText()
-        
+
+        # Convertir estado a booleano o None
+        solo_activos = None
+        if estado == "Solo Activos":
+            solo_activos = True
+        elif estado == "Solo Inactivos":
+            solo_activos = False
+
         try:
-            con = get_con()
-            cur = con.cursor()
-            
-            query = """
-                SELECT a.id, a.ean, a.ref_proveedor, a.nombre, f.nombre, 
-                       a.u_medida, a.min_alerta, a.coste, a.activo
-                FROM articulos a
-                LEFT JOIN familias f ON a.familia_id = f.id
-                WHERE 1=1
-            """
-            params = []
-            
-            if filtro_texto:
-                query += """ AND (a.nombre LIKE ? OR a.ean LIKE ? OR 
-                                 a.ref_proveedor LIKE ? OR a.palabras_clave LIKE ?)"""
-                params.extend([f"%{filtro_texto}%"] * 4)
-            
-            if familia_id:
-                query += " AND a.familia_id = ?"
-                params.append(familia_id)
-            
-            if estado == "Solo Activos":
-                query += " AND a.activo = 1"
-            elif estado == "Solo Inactivos":
-                query += " AND a.activo = 0"
-            
-            query += " ORDER BY a.nombre"
-            
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            con.close()
-            
-            self.tabla.setRowCount(len(rows))
-            
-            for i, row in enumerate(rows):
+            articulos = articulos_service.obtener_articulos(
+                filtro_texto=filtro_texto,
+                familia_id=familia_id,
+                solo_activos=solo_activos,
+                limit=1000
+            )
+
+            self.tabla.setRowCount(len(articulos))
+
+            for i, art in enumerate(articulos):
                 # ID
-                self.tabla.setItem(i, 0, QTableWidgetItem(str(row[0])))
+                self.tabla.setItem(i, 0, QTableWidgetItem(str(art['id'])))
                 # EAN
-                self.tabla.setItem(i, 1, QTableWidgetItem(row[1] or ""))
+                self.tabla.setItem(i, 1, QTableWidgetItem(art['ean'] or ""))
                 # Ref
-                self.tabla.setItem(i, 2, QTableWidgetItem(row[2] or ""))
+                self.tabla.setItem(i, 2, QTableWidgetItem(art['ref_proveedor'] or ""))
                 # Nombre
-                self.tabla.setItem(i, 3, QTableWidgetItem(row[3]))
+                self.tabla.setItem(i, 3, QTableWidgetItem(art['nombre']))
                 # Familia
-                self.tabla.setItem(i, 4, QTableWidgetItem(row[4] or "-"))
+                self.tabla.setItem(i, 4, QTableWidgetItem(art['familia_nombre'] or "-"))
                 # U.Medida
-                self.tabla.setItem(i, 5, QTableWidgetItem(row[5] or "unidad"))
+                self.tabla.setItem(i, 5, QTableWidgetItem(art['u_medida'] or "unidad"))
                 # Stock Mín
-                self.tabla.setItem(i, 6, QTableWidgetItem(str(row[6] or 0)))
+                self.tabla.setItem(i, 6, QTableWidgetItem(str(art['min_alerta'] or 0)))
                 # Coste
-                self.tabla.setItem(i, 7, QTableWidgetItem(f"€ {row[7]:.2f}" if row[7] else "€ 0.00"))
+                coste_txt = f"€ {art['coste']:.2f}" if art['coste'] else "€ 0.00"
+                self.tabla.setItem(i, 7, QTableWidgetItem(coste_txt))
                 # Estado
-                estado_txt = "✅ Activo" if row[8] == 1 else "❌ Inactivo"
+                estado_txt = "✅ Activo" if art['activo'] == 1 else "❌ Inactivo"
                 item_estado = QTableWidgetItem(estado_txt)
-                if row[8] == 0:
+                if art['activo'] == 0:
                     item_estado.setForeground(Qt.gray)
                 self.tabla.setItem(i, 8, item_estado)
-            
+
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar artículos:\n{e}")
     
@@ -537,10 +503,10 @@ class VentanaArticulos(QWidget):
         seleccion = self.tabla.currentRow()
         if seleccion < 0:
             return
-        
+
         articulo_id = int(self.tabla.item(seleccion, 0).text())
         nombre = self.tabla.item(seleccion, 3).text()
-        
+
         respuesta = QMessageBox.question(
             self,
             "⚠️ Confirmar eliminación",
@@ -550,26 +516,19 @@ class VentanaArticulos(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        
+
         if respuesta != QMessageBox.Yes:
             return
-        
-        try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("DELETE FROM articulos WHERE id=?", (articulo_id,))
-            con.commit()
-            con.close()
-            
-            QMessageBox.information(self, "✅ Éxito", f"Artículo '{nombre}' eliminado correctamente.")
-            self.cargar_articulos()
-            
-        except sqlite3.IntegrityError:
-            QMessageBox.warning(
-                self, 
-                "⚠️ No se puede eliminar",
-                f"El artículo '{nombre}' tiene movimientos asociados.\n\n"
-                "En lugar de eliminarlo, puede marcarlo como 'Inactivo' editándolo."
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al eliminar:\n{e}")
+
+        # Llamar al service
+        exito, mensaje = articulos_service.eliminar_articulo(
+            articulo_id=articulo_id,
+            usuario=session_manager.get_usuario_actual() or "admin"
+        )
+
+        if not exito:
+            QMessageBox.warning(self, "⚠️ No se puede eliminar", mensaje)
+            return
+
+        QMessageBox.information(self, "✅ Éxito", mensaje)
+        self.cargar_articulos()
