@@ -369,3 +369,303 @@ ESTILO_BOTON_QUITAR = f"""
         background-color: {COLOR_ROJO_PRESSED};
     }}
 """
+
+# ========================================
+# ESTILOS PARA COMPONENTES REUTILIZABLES
+# ========================================
+
+# Título principal de ventana (grande, azul, bold)
+ESTILO_TITULO_VENTANA = f"""
+    QLabel {{
+        font-size: 20px;
+        font-weight: bold;
+        color: {COLOR_AZUL_PRINCIPAL};
+        padding: 10px 15px;
+        background-color: transparent;
+    }}
+"""
+
+# Descripción/subtítulo de ventana (gris, itálica, pequeño)
+ESTILO_DESCRIPCION = f"""
+    QLabel {{
+        font-size: 13px;
+        color: {COLOR_TEXTO_GRIS};
+        padding: 5px 15px 15px 15px;
+        background-color: transparent;
+        font-style: italic;
+    }}
+"""
+
+# Tabla de datos estándar (sin scroll horizontal, alternating rows)
+ESTILO_TABLA_DATOS = f"""
+    QTableWidget {{
+        background-color: {COLOR_BLANCO};
+        border: 2px solid {COLOR_GRIS_BORDE};
+        border-radius: 6px;
+        gridline-color: {COLOR_GRIS_BORDE};
+        alternate-background-color: {COLOR_AZUL_PASTEL};
+    }}
+
+    QTableWidget::item {{
+        padding: 8px;
+        color: {COLOR_TEXTO_OSCURO};
+        border-bottom: 1px solid #f1f5f9;
+    }}
+
+    QTableWidget::item:selected {{
+        background-color: {COLOR_AZUL_CLARO};
+        color: {COLOR_AZUL_PRINCIPAL};
+        font-weight: bold;
+    }}
+
+    QTableWidget::item:hover {{
+        background-color: {COLOR_AZUL_PASTEL};
+    }}
+
+    QHeaderView::section {{
+        background-color: {COLOR_AZUL_PRINCIPAL};
+        color: {COLOR_BLANCO};
+        padding: 12px 8px;
+        font-weight: bold;
+        font-size: 13px;
+        border: none;
+        border-right: 1px solid {COLOR_AZUL_HOVER};
+    }}
+
+    QHeaderView::section:last {{
+        border-right: none;
+    }}
+
+    QScrollBar:vertical {{
+        border: none;
+        background-color: {COLOR_FONDO};
+        width: 12px;
+        margin: 0px;
+    }}
+
+    QScrollBar::handle:vertical {{
+        background-color: {COLOR_GRIS_BORDE};
+        border-radius: 6px;
+        min-height: 30px;
+    }}
+
+    QScrollBar::handle:vertical:hover {{
+        background-color: {COLOR_TEXTO_GRIS};
+    }}
+
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+        height: 0px;
+    }}
+
+    QScrollBar:horizontal {{
+        border: none;
+        background-color: {COLOR_FONDO};
+        height: 12px;
+        margin: 0px;
+    }}
+
+    QScrollBar::handle:horizontal {{
+        background-color: {COLOR_GRIS_BORDE};
+        border-radius: 6px;
+        min-width: 30px;
+    }}
+
+    QScrollBar::handle:horizontal:hover {{
+        background-color: {COLOR_TEXTO_GRIS};
+    }}
+
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+        width: 0px;
+    }}
+"""
+
+# Tabs (pestañas) con estilo moderno
+ESTILO_TABS = f"""
+    QTabWidget::pane {{
+        border: 2px solid {COLOR_GRIS_BORDE};
+        border-radius: 6px;
+        background-color: {COLOR_BLANCO};
+        padding: 10px;
+        top: -1px;
+    }}
+
+    QTabBar::tab {{
+        background-color: {COLOR_FONDO};
+        color: {COLOR_TEXTO_GRIS};
+        padding: 10px 20px;
+        margin-right: 4px;
+        border-top-left-radius: 6px;
+        border-top-right-radius: 6px;
+        border: 2px solid {COLOR_GRIS_BORDE};
+        border-bottom: none;
+        min-width: 100px;
+    }}
+
+    QTabBar::tab:selected {{
+        background-color: {COLOR_BLANCO};
+        color: {COLOR_AZUL_PRINCIPAL};
+        font-weight: bold;
+        border-top: 3px solid {COLOR_AZUL_PRINCIPAL};
+        border-left: 2px solid {COLOR_GRIS_BORDE};
+        border-right: 2px solid {COLOR_GRIS_BORDE};
+        border-bottom: 2px solid {COLOR_BLANCO};
+    }}
+
+    QTabBar::tab:hover:!selected {{
+        background-color: {COLOR_AZUL_PASTEL};
+        color: {COLOR_AZUL_PRINCIPAL};
+    }}
+"""
+
+# Panel de filtros (GroupBox estilizado)
+ESTILO_PANEL_FILTROS = f"""
+    QGroupBox {{
+        border: 2px solid {COLOR_GRIS_BORDE};
+        border-radius: 6px;
+        margin-top: 12px;
+        padding: 15px 10px 10px 10px;
+        background-color: {COLOR_AZUL_PASTEL};
+    }}
+
+    QGroupBox::title {{
+        color: {COLOR_AZUL_PRINCIPAL};
+        font-weight: bold;
+        font-size: 14px;
+        subcontrol-origin: margin;
+        subcontrol-position: top left;
+        left: 15px;
+        padding: 2px 10px;
+        background-color: {COLOR_BLANCO};
+        border: 2px solid {COLOR_GRIS_BORDE};
+        border-radius: 4px;
+    }}
+"""
+
+# Alertas tipo INFO (azul)
+ESTILO_ALERTA_INFO = f"""
+    QLabel {{
+        background-color: {COLOR_AZUL_CLARO};
+        color: {COLOR_AZUL_PRINCIPAL};
+        border-left: 4px solid {COLOR_AZUL_PRINCIPAL};
+        padding: 12px 15px;
+        border-radius: 4px;
+        font-size: 13px;
+    }}
+"""
+
+# Alertas tipo WARNING (amarillo/naranja)
+ESTILO_ALERTA_WARNING = f"""
+    QLabel {{
+        background-color: #fef3c7;
+        color: #92400e;
+        border-left: 4px solid #f59e0b;
+        padding: 12px 15px;
+        border-radius: 4px;
+        font-size: 13px;
+    }}
+"""
+
+# Alertas tipo ERROR (rojo)
+ESTILO_ALERTA_ERROR = f"""
+    QLabel {{
+        background-color: #fee2e2;
+        color: #991b1b;
+        border-left: 4px solid #ef4444;
+        padding: 12px 15px;
+        border-radius: 4px;
+        font-size: 13px;
+    }}
+"""
+
+# Alertas tipo SUCCESS (verde)
+ESTILO_ALERTA_SUCCESS = f"""
+    QLabel {{
+        background-color: #d1fae5;
+        color: #065f46;
+        border-left: 4px solid #10b981;
+        padding: 12px 15px;
+        border-radius: 4px;
+        font-size: 13px;
+    }}
+"""
+
+# Panel de totales (para mostrar sumas, contadores, etc.)
+ESTILO_TOTALES = f"""
+    QLabel {{
+        background-color: {COLOR_AZUL_PASTEL};
+        color: {COLOR_AZUL_PRINCIPAL};
+        border: 2px solid {COLOR_AZUL_PRINCIPAL};
+        border-radius: 6px;
+        padding: 10px 15px;
+        font-size: 15px;
+        font-weight: bold;
+    }}
+"""
+
+# Campo de búsqueda destacado
+ESTILO_CAMPO_BUSCAR = f"""
+    QLineEdit {{
+        padding: 10px 15px;
+        border: 2px solid {COLOR_AZUL_PRINCIPAL};
+        border-radius: 6px;
+        background-color: {COLOR_BLANCO};
+        font-size: 14px;
+        color: {COLOR_TEXTO_OSCURO};
+        min-height: 40px;
+    }}
+
+    QLineEdit:focus {{
+        border: 2px solid {COLOR_AZUL_HOVER};
+        background-color: {COLOR_AZUL_PASTEL};
+    }}
+
+    QLineEdit::placeholder {{
+        color: {COLOR_TEXTO_GRIS};
+        font-style: italic;
+    }}
+"""
+
+# Grupo de botones (toolbar)
+ESTILO_GRUPO_BOTONES = f"""
+    QWidget {{
+        background-color: {COLOR_FONDO};
+        border-top: 2px solid {COLOR_GRIS_BORDE};
+        padding: 10px;
+    }}
+
+    QPushButton {{
+        padding: 10px 20px;
+        background-color: {COLOR_BLANCO};
+        border: 2px solid {COLOR_AZUL_PRINCIPAL};
+        border-radius: 6px;
+        color: {COLOR_AZUL_PRINCIPAL};
+        font-weight: bold;
+        min-width: 120px;
+        min-height: 40px;
+    }}
+
+    QPushButton:hover {{
+        background-color: {COLOR_AZUL_PRINCIPAL};
+        color: {COLOR_BLANCO};
+    }}
+
+    QPushButton:pressed {{
+        background-color: {COLOR_AZUL_HOVER};
+    }}
+
+    QPushButton:disabled {{
+        background-color: {COLOR_GRIS_BORDE};
+        border-color: {COLOR_GRIS_BORDE};
+        color: {COLOR_TEXTO_GRIS};
+    }}
+"""
+
+# Separador visual (línea horizontal)
+ESTILO_SEPARADOR = f"""
+    QFrame[frameShape="4"] {{
+        /* frameShape="4" es HLine */
+        background-color: {COLOR_GRIS_BORDE};
+        max-height: 2px;
+        border: none;
+    }}
+"""
