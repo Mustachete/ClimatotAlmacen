@@ -108,6 +108,10 @@ class _FurgonetasServiceWrapper:
     al patrón esperado por DialogoMaestroBase (basado en métodos de clase).
     """
 
+    def obtener_furgonetas(self, filtro_texto: Optional[str] = None, limit: int = 1000) -> List[Dict[str, Any]]:
+        """Lista todas las furgonetas"""
+        return list_furgonetas(include_inactive=True)
+
     def obtener_furgoneta(self, furgoneta_id: int) -> Optional[Dict[str, Any]]:
         """Obtiene una furgoneta por ID"""
         return get_furgoneta(furgoneta_id)

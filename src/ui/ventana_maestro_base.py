@@ -268,19 +268,26 @@ class VentanaMaestroBase(QWidget, metaclass=QABCMeta):
 
             # Priorizar métodos plurales (obtener_proveedores sobre obtener_proveedor)
             # y métodos que empiecen con 'listar_' sobre 'obtener_'
+            # Además, priorizar métodos más cortos/generales (obtener_operarios sobre obtener_ayudantes_activos)
+
+            # 1. Priorizar listar_
             for nombre, metodo in metodos_candidatos:
                 if nombre.startswith('listar_'):
                     metodo_listar = metodo
                     break
 
-            # Si no hay listar_, buscar obtener_ en plural
+            # 2. Si no hay listar_, buscar obtener_ en plural, priorizando los más cortos
             if not metodo_listar:
-                for nombre, metodo in metodos_candidatos:
-                    if nombre.startswith('obtener_') and nombre.endswith('s'):
-                        metodo_listar = metodo
-                        break
+                candidatos_plurales = [
+                    (nombre, metodo) for nombre, metodo in metodos_candidatos
+                    if nombre.startswith('obtener_') and nombre.endswith('s')
+                ]
+                # Ordenar por longitud (más cortos primero = más generales)
+                candidatos_plurales.sort(key=lambda x: len(x[0]))
+                if candidatos_plurales:
+                    metodo_listar = candidatos_plurales[0][1]
 
-            # Si aún no hay, tomar el primero disponible
+            # 3. Si aún no hay, tomar el primero disponible
             if not metodo_listar and metodos_candidatos:
                 metodo_listar = metodos_candidatos[0][1]
 
