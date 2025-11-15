@@ -1,7 +1,9 @@
 # ventana_operarios.py - Gestión de Operarios
 from PySide6.QtWidgets import (
-    QTableWidgetItem, QLineEdit, QLabel, QHeaderView, QComboBox, QCheckBox
+    QTableWidgetItem, QLineEdit, QLabel, QHeaderView, QComboBox, QCheckBox, QMessageBox
 )
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from src.ui.dialogo_maestro_base import DialogoMaestroBase
 from src.ui.ventana_maestro_base import VentanaMaestroBase
 from src.services import operarios_service
