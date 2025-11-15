@@ -7,9 +7,7 @@ from PySide6.QtCore import Qt, QDate
 from datetime import date
 from src.ui.dialogo_maestro_base import DialogoMaestroBase
 from src.ui.ventana_maestro_base import VentanaMaestroBase
-from src.services.furgonetas_service import (
-    boot, list_furgonetas, baja_furgoneta, furgonetas_service_wrapper
-)
+from src.services.furgonetas_service import boot, furgonetas_service_wrapper
 from src.repos.operarios_repo import get_todos as get_todos_operarios
 from src.utils import validaciones
 
@@ -106,29 +104,6 @@ class DialogoFurgoneta(DialogoMaestroBase):
 
 
 # ========================================
-# WRAPPER DE SERVICE PARA COMPATIBILIDAD
-# ========================================
-class FurgonetasServiceWrapper:
-    """Wrapper para adaptar las funciones del service al patrón esperado por VentanaMaestroBase"""
-
-    def obtener_furgonetas(self, filtro_texto=None, limit=1000):
-        """Retorna todas las furgonetas (el service no soporta filtros por ahora)"""
-        return list_furgonetas()
-
-    def eliminar_furgoneta(self, furgoneta_id, usuario=None):
-        """Elimina una furgoneta"""
-        try:
-            baja_furgoneta(furgoneta_id)
-            return True, "Furgoneta eliminada correctamente"
-        except Exception as e:
-            return False, f"Error al eliminar: {e}"
-
-
-# Instancia global del wrapper
-_furgonetas_service_wrapper = FurgonetasServiceWrapper()
-
-
-# ========================================
 # VENTANA PRINCIPAL: GESTIÓN DE FURGONETAS
 # ========================================
 class VentanaFurgonetas(VentanaMaestroBase):
@@ -169,7 +144,7 @@ class VentanaFurgonetas(VentanaMaestroBase):
 
     def get_service(self):
         """Retorna el wrapper del service de furgonetas"""
-        return _furgonetas_service_wrapper
+        return furgonetas_service_wrapper
 
     def crear_dialogo(self, item_id=None):
         """Crea el diálogo para crear/editar una furgoneta"""

@@ -191,6 +191,23 @@ class _FurgonetasServiceWrapper:
         except Exception as e:
             return False, f"Error al actualizar furgoneta: {str(e)}"
 
+    def eliminar_furgoneta(self, furgoneta_id: int, usuario: str = None) -> tuple:
+        """
+        Elimina una furgoneta.
+
+        Args:
+            furgoneta_id: ID de la furgoneta a eliminar
+            usuario: Usuario que realiza la acción (opcional)
+
+        Returns:
+            Tupla (exito, mensaje)
+        """
+        try:
+            baja_furgoneta(furgoneta_id)
+            return True, "Furgoneta eliminada correctamente"
+        except Exception as e:
+            return False, f"Error al eliminar furgoneta: {str(e)}"
+
 
 # Instancia singleton del wrapper
 furgonetas_service_wrapper = _FurgonetasServiceWrapper()
