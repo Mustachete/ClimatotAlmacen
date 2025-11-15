@@ -57,6 +57,7 @@ from src.ui.widgets_base import TituloVentana, DescripcionVentana
 from src.ui.widgets_personalizados import SpinBoxClimatot, crear_boton_quitar_centrado
 from src.dialogs.buscador_articulos import BuscadorArticulos
 from src.core.session_manager import session_manager
+from src.utils import validaciones
 
 
 # Metaclass que combina QWidget y ABCMeta
@@ -363,8 +364,10 @@ class VentanaOperativaBase(QWidget, metaclass=QABCMeta):
             return
 
         cantidad = self.spin_cantidad.value()
-        if cantidad == 0:
-            QMessageBox.warning(self, "⚠️ Aviso", "La cantidad debe ser mayor a 0")
+        # Validar cantidad usando validaciones centralizadas
+        valido, mensaje = validaciones.validar_cantidad(cantidad)
+        if not valido:
+            QMessageBox.warning(self, "⚠️ Aviso", mensaje)
             return
 
         # Verificar si el artículo ya está en la lista

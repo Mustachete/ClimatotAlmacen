@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 from src.ui.dialogo_maestro_base import DialogoMaestroBase
 from src.ui.ventana_maestro_base import VentanaMaestroBase
 from src.services import proveedores_service
+from src.utils import validaciones
 
 # ========================================
 # DIÁLOGO PARA AÑADIR/EDITAR PROVEEDOR
@@ -49,6 +50,27 @@ class DialogoProveedor(DialogoMaestroBase):
             'email': self.txt_email.text().strip() or None,
             'notas': self.txt_notas.toPlainText().strip() or None
         }
+
+    def validar_datos(self, datos):
+        """Valida los datos del formulario usando validaciones centralizadas"""
+        # Validar nombre obligatorio
+        valido, mensaje = validaciones.validar_campo_obligatorio(datos.get('nombre', ''), 'nombre')
+        if not valido:
+            return False, mensaje
+
+        # Validar email si se proporcionó
+        if datos.get('email'):
+            valido, mensaje = validaciones.validar_email(datos['email'])
+            if not valido:
+                return False, mensaje
+
+        # Validar teléfono si se proporcionó
+        if datos.get('telefono'):
+            valido, mensaje = validaciones.validar_telefono(datos['telefono'])
+            if not valido:
+                return False, mensaje
+
+        return True, ""
 
     def cargar_datos_en_formulario(self, item_data):
         """Personaliza carga de datos para el campo notas (QTextEdit)"""

@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 from src.ui.dialogo_maestro_base import DialogoMaestroBase
 from src.ui.ventana_maestro_base import VentanaMaestroBase
 from src.services import familias_service
+from src.utils import validaciones
 
 # ========================================
 # DIÁLOGO PARA AÑADIR/EDITAR FAMILIA
@@ -34,6 +35,10 @@ class DialogoFamilia(DialogoMaestroBase):
     def obtener_datos_formulario(self):
         """Obtiene los datos del formulario"""
         return {'nombre': self.txt_nombre.text().strip()}
+
+    def validar_datos(self, datos):
+        """Valida los datos del formulario usando validaciones centralizadas"""
+        return validaciones.validar_campo_obligatorio(datos.get('nombre', ''), 'nombre de familia')
 
 # ========================================
 # VENTANA PRINCIPAL DE FAMILIAS

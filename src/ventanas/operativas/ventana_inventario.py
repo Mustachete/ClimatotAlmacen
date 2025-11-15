@@ -15,6 +15,7 @@ from src.core.logger import logger
 from src.services import inventarios_service, historial_service
 from src.core.session_manager import session_manager
 from src.repos import inventarios_repo
+from src.utils import validaciones
 
 # ========================================
 # DIÁLOGO: NUEVO INVENTARIO
@@ -129,8 +130,10 @@ class DialogoNuevoInventario(QDialog):
         """Crea el inventario usando el service"""
         responsable = self.txt_responsable.text().strip()
 
-        if not responsable:
-            QMessageBox.warning(self, "⚠️ Aviso", "El responsable es obligatorio.")
+        # Validar responsable usando validaciones centralizadas
+        valido, mensaje = validaciones.validar_campo_obligatorio(responsable, 'responsable')
+        if not valido:
+            QMessageBox.warning(self, "⚠️ Aviso", mensaje)
             return
 
         almacen_id = self.cmb_almacen.currentData()

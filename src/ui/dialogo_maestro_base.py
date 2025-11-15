@@ -45,6 +45,7 @@ from PySide6.QtCore import Qt
 
 from src.ui.estilos import ESTILO_DIALOGO
 from src.core.session_manager import session_manager
+from src.utils import validaciones
 
 
 # Metaclass que combina QDialog y ABCMeta
