@@ -226,23 +226,25 @@ class DialogoMaestroBase(QDialog, metaclass=QDialogABCMeta):
 
         try:
             # Obtener método de obtención del service
-            # Los services tienen métodos como: obtener_familia, obtener_proveedor, etc.
+            # Intentar primero el patrón exacto: obtener_<nombre_item>
+            metodo_nombre = f"obtener_{self.nombre_item}"
             metodo_obtener = None
-            for attr_name in dir(self.service):
-                if attr_name.startswith('obtener_') and attr_name.endswith(self.nombre_item):
-                    attr = getattr(self.service, attr_name)
-                    if callable(attr):
-                        metodo_obtener = attr
-                        break
+
+            if hasattr(self.service, metodo_nombre):
+                metodo_obtener = getattr(self.service, metodo_nombre)
+
+            # Si no existe, buscar métodos que terminen con el nombre_item
+            if not metodo_obtener:
+                for attr_name in dir(self.service):
+                    # Buscar exactamente "obtener_X" donde X es nombre_item
+                    if attr_name == metodo_nombre:
+                        attr = getattr(self.service, attr_name)
+                        if callable(attr):
+                            metodo_obtener = attr
+                            break
 
             if not metodo_obtener:
-                # Intentar con el patrón genérico obtener_<nombre>
-                metodo_nombre = f"obtener_{self.nombre_item}"
-                if hasattr(self.service, metodo_nombre):
-                    metodo_obtener = getattr(self.service, metodo_nombre)
-
-            if not metodo_obtener:
-                raise Exception(f"No se encontró método obtener_{self.nombre_item} en el service")
+                raise Exception(f"No se encontró método {metodo_nombre} en el service")
 
             # Obtener datos del item
             item_data = metodo_obtener(self.item_id)
