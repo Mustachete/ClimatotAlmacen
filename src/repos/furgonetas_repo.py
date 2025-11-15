@@ -97,31 +97,54 @@ def list_furgonetas(include_inactive: bool = True) -> List[Dict[str, Any]]:
 
 
 def get_furgoneta(fid: int) -> Optional[Dict[str, Any]]:
-    return fetch_one("SELECT * FROM furgonetas WHERE id = ?", (fid,))
+    """
+    Obtiene una furgoneta por ID desde la tabla almacenes.
+    Retorna datos compatibles con el formato esperado por el diálogo.
+    """
+    result = fetch_one("SELECT id, nombre as matricula FROM almacenes WHERE id = ? AND tipo = 'furgoneta'", (fid,))
+    if result:
+        # Añadir campos adicionales como None para compatibilidad
+        result['marca'] = None
+        result['modelo'] = None
+        result['anio'] = None
+        result['activa'] = 1
+        result['notas'] = None
+        result['numero'] = None
+    return result
 
 
 def create_furgoneta(matricula: str, marca: str = None, modelo: str = None, anio: int = None, notas: str = None, numero: int = None) -> int:
+    """
+    Crea una nueva furgoneta en la tabla almacenes (tipo='furgoneta').
+    Solo usa el campo 'nombre' para guardar la matrícula.
+    Otros campos (marca, modelo, año) se ignoran por ahora ya que almacenes no los tiene.
+    """
     with get_connection() as conn:
         cur = conn.execute(
-            "INSERT INTO furgonetas(numero, matricula, marca, modelo, anio, notas) VALUES(?,?,?,?,?,?)",
-            (numero, matricula.strip().upper(), marca, modelo, anio, notas)
+            "INSERT INTO almacenes(nombre, tipo) VALUES(?, 'furgoneta')",
+            (matricula.strip().upper(),)
         )
         conn.commit()
         return cur.lastrowid
 
 
 def update_furgoneta(fid: int, matricula: str, marca: str = None, modelo: str = None, anio: int = None, activa: int = 1, notas: str = None, numero: int = None) -> None:
+    """
+    Actualiza una furgoneta en la tabla almacenes.
+    Solo actualiza el campo 'nombre' (matrícula).
+    Otros campos se ignoran ya que almacenes no los tiene.
+    """
     execute_query(
-        """
-        UPDATE furgonetas SET numero=?1, matricula=?2, marca=?3, modelo=?4, anio=?5, activa=?6, notas=?7
-        WHERE id = ?8
-        """,
-        (numero, matricula.strip().upper(), marca, modelo, anio, int(bool(activa)), notas, fid)
+        "UPDATE almacenes SET nombre = ? WHERE id = ? AND tipo = 'furgoneta'",
+        (matricula.strip().upper(), fid)
     )
 
 
 def delete_furgoneta(fid: int) -> None:
-    execute_query("DELETE FROM furgonetas WHERE id = ?", (fid,))
+    """
+    Elimina una furgoneta de la tabla almacenes.
+    """
+    execute_query("DELETE FROM almacenes WHERE id = ? AND tipo = 'furgoneta'", (fid,))
 
 
 # -----------------------------
