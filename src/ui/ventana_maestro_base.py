@@ -235,10 +235,17 @@ class VentanaMaestroBase(QWidget, metaclass=QABCMeta):
             # - obtener_familias(), obtener_proveedores(), etc. (plurales, sin parámetros obligatorios)
             # - obtener_familia(id), obtener_proveedor(id), etc. (singulares, con parámetro)
             # Buscamos métodos que empiecen con 'obtener_' o 'listar_' y que NO requieran parámetros
+            # EXCLUIMOS métodos como obtener_estadisticas_generales que no retornan listas de items
             import inspect
             metodo_listar = None
+            metodos_candidatos = []
+
             for attr_name in dir(service):
                 if attr_name.startswith('obtener_') or attr_name.startswith('listar_'):
+                    # Excluir métodos que no son de listado de items
+                    if 'estadisticas' in attr_name or 'estadistica' in attr_name:
+                        continue
+
                     attr = getattr(service, attr_name)
                     if callable(attr):
                         # Verificar que el método no requiera parámetros obligatorios
@@ -252,13 +259,30 @@ class VentanaMaestroBase(QWidget, metaclass=QABCMeta):
                                     inspect.Parameter.VAR_KEYWORD
                                 )
                             ]
-                            # Si no tiene parámetros obligatorios, es el método correcto
+                            # Si no tiene parámetros obligatorios, es candidato
                             if len(required_params) == 0:
-                                metodo_listar = attr
-                                break
+                                metodos_candidatos.append((attr_name, attr))
                         except:
                             # Si falla la inspección, intentar de todos modos
                             pass
+
+            # Priorizar métodos plurales (obtener_proveedores sobre obtener_proveedor)
+            # y métodos que empiecen con 'listar_' sobre 'obtener_'
+            for nombre, metodo in metodos_candidatos:
+                if nombre.startswith('listar_'):
+                    metodo_listar = metodo
+                    break
+
+            # Si no hay listar_, buscar obtener_ en plural
+            if not metodo_listar:
+                for nombre, metodo in metodos_candidatos:
+                    if nombre.startswith('obtener_') and nombre.endswith('s'):
+                        metodo_listar = metodo
+                        break
+
+            # Si aún no hay, tomar el primero disponible
+            if not metodo_listar and metodos_candidatos:
+                metodo_listar = metodos_candidatos[0][1]
 
             if not metodo_listar:
                 raise Exception("No se encontró método de listado en el service")
@@ -269,6 +293,10 @@ class VentanaMaestroBase(QWidget, metaclass=QABCMeta):
             except TypeError:
                 # Si el método no acepta estos parámetros, intentar sin ellos
                 datos = metodo_listar()
+
+            # Validar que datos sea una lista (no un diccionario u otro tipo)
+            if not isinstance(datos, list):
+                raise Exception(f"El método de listado retornó {type(datos).__name__} en lugar de lista")
 
             # Cargar datos en tabla
             self.cargar_datos_en_tabla(datos)
