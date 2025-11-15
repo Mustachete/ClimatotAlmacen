@@ -232,15 +232,33 @@ class VentanaMaestroBase(QWidget, metaclass=QABCMeta):
 
             # Obtener método de listado del service
             # Los services pueden tener diferentes métodos:
-            # - obtener_familias(), obtener_proveedores(), etc.
-            # Buscamos el método que empiece con 'obtener_' o 'listar_'
+            # - obtener_familias(), obtener_proveedores(), etc. (plurales, sin parámetros obligatorios)
+            # - obtener_familia(id), obtener_proveedor(id), etc. (singulares, con parámetro)
+            # Buscamos métodos que empiecen con 'obtener_' o 'listar_' y que NO requieran parámetros
+            import inspect
             metodo_listar = None
             for attr_name in dir(service):
                 if attr_name.startswith('obtener_') or attr_name.startswith('listar_'):
                     attr = getattr(service, attr_name)
                     if callable(attr):
-                        metodo_listar = attr
-                        break
+                        # Verificar que el método no requiera parámetros obligatorios
+                        try:
+                            sig = inspect.signature(attr)
+                            # Contar parámetros obligatorios (sin valor default)
+                            required_params = [
+                                p for p in sig.parameters.values()
+                                if p.default == inspect.Parameter.empty and p.kind not in (
+                                    inspect.Parameter.VAR_POSITIONAL,
+                                    inspect.Parameter.VAR_KEYWORD
+                                )
+                            ]
+                            # Si no tiene parámetros obligatorios, es el método correcto
+                            if len(required_params) == 0:
+                                metodo_listar = attr
+                                break
+                        except:
+                            # Si falla la inspección, intentar de todos modos
+                            pass
 
             if not metodo_listar:
                 raise Exception("No se encontró método de listado en el service")
