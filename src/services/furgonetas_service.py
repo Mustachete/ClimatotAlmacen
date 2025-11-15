@@ -97,3 +97,96 @@ def listar_asignaciones_operario(
         Lista de asignaciones
     """
     return asignaciones_repo.get_asignaciones_operario(operario_id, fecha_desde, fecha_hasta)
+
+
+# ========================================
+# WRAPPER PARA COMPATIBILIDAD CON DialogoMaestroBase
+# ========================================
+class _FurgonetasServiceWrapper:
+    """
+    Wrapper para adaptar furgonetas_service (basado en funciones)
+    al patrón esperado por DialogoMaestroBase (basado en métodos de clase).
+    """
+
+    def obtener_furgoneta(self, furgoneta_id: int) -> Optional[Dict[str, Any]]:
+        """Obtiene una furgoneta por ID"""
+        return get_furgoneta(furgoneta_id)
+
+    def crear_furgoneta(self, matricula: str, numero: int = None, marca: str = None,
+                       modelo: str = None, anio: int = None, activa: bool = True,
+                       notas: str = None, usuario: str = None) -> tuple:
+        """
+        Crea una nueva furgoneta.
+
+        Returns:
+            Tupla (exito, mensaje, furgoneta_id)
+        """
+        try:
+            # Validar matrícula obligatoria
+            if not matricula or not matricula.strip():
+                return False, "La matrícula es obligatoria", None
+
+            # Validar número único si se proporciona
+            if numero is not None:
+                furgonetas = list_furgonetas()
+                for f in furgonetas:
+                    if f.get('numero') == numero:
+                        return False, f"El número {numero} ya está asignado a otra furgoneta", None
+
+            # Crear furgoneta
+            furgoneta_id = alta_furgoneta(
+                matricula=matricula,
+                marca=marca,
+                modelo=modelo,
+                anio=anio,
+                notas=notas,
+                numero=numero
+            )
+
+            return True, "Furgoneta creada correctamente", furgoneta_id
+
+        except Exception as e:
+            return False, f"Error al crear furgoneta: {str(e)}", None
+
+    def actualizar_furgoneta(self, furgoneta_id: int, matricula: str,
+                            numero: int = None, marca: str = None, modelo: str = None,
+                            anio: int = None, activa: bool = True, notas: str = None,
+                            usuario: str = None) -> tuple:
+        """
+        Actualiza una furgoneta existente.
+
+        Returns:
+            Tupla (exito, mensaje)
+        """
+        try:
+            # Validar matrícula obligatoria
+            if not matricula or not matricula.strip():
+                return False, "La matrícula es obligatoria"
+
+            # Validar número único si se proporciona
+            if numero is not None:
+                furgonetas = list_furgonetas()
+                for f in furgonetas:
+                    if f['id'] != furgoneta_id and f.get('numero') == numero:
+                        return False, f"El número {numero} ya está asignado a otra furgoneta"
+
+            # Actualizar furgoneta
+            modificar_furgoneta(
+                furgoneta_id,
+                matricula=matricula,
+                numero=numero,
+                marca=marca,
+                modelo=modelo,
+                anio=anio,
+                activa=1 if activa else 0,
+                notas=notas
+            )
+
+            return True, "Furgoneta actualizada correctamente"
+
+        except Exception as e:
+            return False, f"Error al actualizar furgoneta: {str(e)}"
+
+
+# Instancia singleton del wrapper
+furgonetas_service_wrapper = _FurgonetasServiceWrapper()

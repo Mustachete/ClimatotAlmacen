@@ -1,184 +1,183 @@
 # ventana_usuarios.py - Gestión de Usuarios del Sistema
 from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QPushButton,
-    QTableWidgetItem, QLineEdit, QLabel, QMessageBox, QDialog,
-    QFormLayout, QHeaderView, QComboBox, QCheckBox
+    QTableWidgetItem, QLineEdit, QLabel, QMessageBox,
+    QHeaderView, QComboBox, QCheckBox
 )
-from PySide6.QtCore import Qt
-from src.ui.estilos import ESTILO_DIALOGO
+from src.ui.dialogo_maestro_base import DialogoMaestroBase
 from src.ui.ventana_maestro_base import VentanaMaestroBase
 from src.services import usuarios_service
 from src.core.session_manager import session_manager
+from src.utils import validaciones
 
 
 # ========================================
 # DIÁLOGO PARA AÑADIR/EDITAR USUARIO
 # ========================================
-class DialogoUsuario(QDialog):
+class DialogoUsuario(DialogoMaestroBase):
     def __init__(self, parent=None, usuario=None):
-        super().__init__(parent)
-        self.usuario = usuario  # Nombre de usuario a editar (None si es nuevo)
-        self.setWindowTitle("✏️ Editar Usuario" if usuario else "➕ Nuevo Usuario")
-        self.setMinimumSize(450, 300)
-        self.resize(500, 350)
-        self.setStyleSheet(ESTILO_DIALOGO)
+        # Guardar usuario antes de llamar a super (DialogoMaestroBase usa item_id)
+        self.usuario_nombre = usuario
 
-        layout = QVBoxLayout(self)
+        super().__init__(
+            parent=parent,
+            item_id=usuario,  # Usa el nombre de usuario como ID
+            titulo_nuevo="➕ Nuevo Usuario",
+            titulo_editar="✏️ Editar Usuario",
+            service=usuarios_service,
+            nombre_item="usuario",
+            mostrar_nota_obligatorios=False  # Usamos nota personalizada
+        )
 
-        # Formulario
-        form = QFormLayout()
+    def configurar_dimensiones(self):
+        """Personaliza dimensiones del diálogo"""
+        self.setMinimumSize(450, 350)
+        self.resize(500, 400)
 
+    def crear_formulario(self, form_layout):
+        """Crea los campos del formulario"""
         # Usuario
         self.txt_usuario = QLineEdit()
         self.txt_usuario.setPlaceholderText("Mínimo 3 caracteres (a-z, 0-9, _, -)")
-        if self.usuario:
-            self.txt_usuario.setText(self.usuario)
-            self.txt_usuario.setEnabled(False)  # No se puede cambiar el usuario
-        form.addRow("👤 Usuario *:", self.txt_usuario)
+        if self.usuario_nombre:
+            self.txt_usuario.setText(self.usuario_nombre)
+            self.txt_usuario.setEnabled(False)  # No se puede cambiar
+        form_layout.addRow("👤 Usuario *:", self.txt_usuario)
 
         # Contraseña
         self.txt_password = QLineEdit()
-        self.txt_password.setEchoMode(QLineEdit.Password)
-        if self.usuario:
+        self.txt_password.setEchoMode(QLineEdit.EchoMode.Password)
+        if self.usuario_nombre:
             self.txt_password.setPlaceholderText("Dejar vacío para no cambiar")
         else:
             self.txt_password.setPlaceholderText("Mínimo 4 caracteres")
-        form.addRow("🔒 Contraseña" + (" *:" if not self.usuario else ":"), self.txt_password)
+        form_layout.addRow("🔒 Contraseña" + (" *:" if not self.usuario_nombre else ":"), self.txt_password)
 
         # Confirmar contraseña
         self.txt_password_confirm = QLineEdit()
-        self.txt_password_confirm.setEchoMode(QLineEdit.Password)
+        self.txt_password_confirm.setEchoMode(QLineEdit.EchoMode.Password)
         self.txt_password_confirm.setPlaceholderText("Repetir contraseña")
-        form.addRow("🔒 Confirmar Contraseña:", self.txt_password_confirm)
+        form_layout.addRow("🔒 Confirmar Contraseña:", self.txt_password_confirm)
 
         # Rol
         self.cmb_rol = QComboBox()
         self.cmb_rol.addItems(["admin", "almacen", "operario"])
-        form.addRow("👔 Rol *:", self.cmb_rol)
+        form_layout.addRow("👔 Rol *:", self.cmb_rol)
 
         # Activo
         self.chk_activo = QCheckBox("Usuario activo")
         self.chk_activo.setChecked(True)
-        form.addRow("", self.chk_activo)
+        form_layout.addRow("", self.chk_activo)
 
-        layout.addLayout(form)
-
-        # Nota obligatorio
+        # Nota personalizada
         nota = QLabel("* Campos obligatorios")
         nota.setStyleSheet("color: gray; font-size: 12px;")
-        layout.addWidget(nota)
+        form_layout.addRow("", nota)
 
         # Advertencia de edición
-        if self.usuario:
+        if self.usuario_nombre:
             advertencia = QLabel(
                 "⚠️ El nombre de usuario no se puede modificar.\n"
                 "Para cambiar contraseña, ingrese la nueva contraseña."
             )
             advertencia.setStyleSheet("color: #f97316; font-size: 11px; margin: 5px;")
             advertencia.setWordWrap(True)
-            layout.addWidget(advertencia)
+            form_layout.addRow("", advertencia)
 
-        # Botones
-        layout.addStretch()
-        btn_layout = QHBoxLayout()
-
-        self.btn_guardar = QPushButton("💾 Guardar")
-        self.btn_guardar.clicked.connect(self.guardar)
-
-        self.btn_cancelar = QPushButton("❌ Cancelar")
-        self.btn_cancelar.clicked.connect(self.reject)
-
-        btn_layout.addWidget(self.btn_guardar)
-        btn_layout.addWidget(self.btn_cancelar)
-        layout.addLayout(btn_layout)
-
-        # Si estamos editando, cargar datos
-        if self.usuario:
-            self.cargar_datos()
-
-        # Focus en el campo apropiado
-        if self.usuario:
+    def _set_focus_inicial(self):
+        """Focus en el campo apropiado según modo"""
+        if self.usuario_nombre:
             self.txt_password.setFocus()
         else:
             self.txt_usuario.setFocus()
 
-        # Conectar teclas Esc y Return
-        self.btn_guardar.setDefault(True)  # Return = Guardar
-        self.btn_cancelar.setShortcut("Esc")  # Esc = Cancelar
+    def obtener_datos_formulario(self):
+        """Obtiene los datos del formulario"""
+        password = self.txt_password.text()
+        return {
+            'usuario': self.txt_usuario.text().strip(),
+            'password': password if password else None,
+            'rol': self.cmb_rol.currentText(),
+            'activo': self.chk_activo.isChecked()
+        }
 
-    def cargar_datos(self):
-        """Carga los datos del usuario a editar"""
-        try:
-            user_data = usuarios_service.obtener_usuario(self.usuario)
-            if user_data:
-                # Rol
-                index = self.cmb_rol.findText(user_data['rol'])
-                if index >= 0:
-                    self.cmb_rol.setCurrentIndex(index)
+    def validar_datos(self, datos):
+        """Valida los datos del formulario"""
+        # Validar usuario obligatorio
+        valido, mensaje = validaciones.validar_campo_obligatorio(datos.get('usuario', ''), 'usuario')
+        if not valido:
+            return False, mensaje
 
-                # Activo
-                self.chk_activo.setChecked(bool(user_data['activo']))
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al cargar datos:\n{e}")
+        # Validar nombre de usuario (formato)
+        valido, mensaje = validaciones.validar_nombre_usuario(datos['usuario'])
+        if not valido:
+            return False, mensaje
 
-    def guardar(self):
-        """Guarda el usuario (nuevo o editado)"""
-        usuario = self.txt_usuario.text().strip()
+        # Validar contraseñas coincidan
         password = self.txt_password.text()
         password_confirm = self.txt_password_confirm.text()
-        rol = self.cmb_rol.currentText()
-        activo = self.chk_activo.isChecked()
-
-        # Validar contraseña
         if password or password_confirm:
             if password != password_confirm:
-                QMessageBox.warning(self, "⚠️ Error", "Las contraseñas no coinciden")
-                self.txt_password_confirm.setFocus()
-                return
+                return False, "Las contraseñas no coinciden"
 
-        # Usuario actual
-        usuario_actual = session_manager.get_usuario_actual() or "admin"
+        # Validar contraseña obligatoria en creación
+        if not self.usuario_nombre and not password:
+            return False, "La contraseña es obligatoria para usuarios nuevos"
 
-        if self.usuario:
-            # Actualizar usuario existente
-            # Verificar que no se esté desactivando a sí mismo
-            if self.usuario == usuario_actual and not activo:
-                QMessageBox.warning(
-                    self,
-                    "⚠️ No Permitido",
-                    "No puede desactivar su propio usuario.\n\n"
-                    "Use otra cuenta de administrador para realizar esta acción."
-                )
-                return
+        # Validar password seguro si se proporciona
+        if password:
+            valido, mensaje = validaciones.validar_password_seguro(password, minimo_caracteres=4)
+            if not valido:
+                return False, mensaje
 
-            exito, mensaje = usuarios_service.actualizar_usuario(
-                usuario=self.usuario,
-                password=password if password else None,
-                rol=rol,
-                activo=activo,
-                usuario_modificador=usuario_actual
-            )
-        else:
-            # Crear nuevo usuario
-            if not password:
-                QMessageBox.warning(self, "⚠️ Error", "La contraseña es obligatoria para usuarios nuevos")
-                self.txt_password.setFocus()
-                return
+        # Validar que no se desactive a sí mismo
+        if self.usuario_nombre:
+            usuario_actual = session_manager.get_usuario_actual()
+            if self.usuario_nombre == usuario_actual and not datos['activo']:
+                return False, "No puede desactivar su propio usuario"
 
-            exito, mensaje = usuarios_service.crear_usuario(
-                usuario=usuario,
-                password=password,
-                rol=rol,
-                activo=activo,
-                usuario_creador=usuario_actual
-            )
+        return True, ""
 
-        if not exito:
-            QMessageBox.warning(self, "⚠️ Error", mensaje)
-            return
+    def cargar_datos_en_formulario(self, item_data):
+        """Personaliza carga de datos"""
+        # No cargar usuario (ya está seteado y deshabilitado)
+        # No cargar password (nunca se muestra)
 
-        QMessageBox.information(self, "✅ Éxito", mensaje)
-        self.accept()
+        # Cargar rol
+        if 'rol' in item_data:
+            index = self.cmb_rol.findText(item_data['rol'])
+            if index >= 0:
+                self.cmb_rol.setCurrentIndex(index)
+
+        # Cargar activo
+        if 'activo' in item_data:
+            self.chk_activo.setChecked(bool(item_data['activo']))
+
+    def _crear_item(self, datos):
+        """Sobrescribe para usar usuario_creador en vez de usuario"""
+        try:
+            datos['usuario_creador'] = session_manager.get_usuario_actual() or "admin"
+            resultado = self.service.crear_usuario(**datos)
+
+            if isinstance(resultado, tuple) and len(resultado) >= 2:
+                return resultado[0], resultado[1]
+            else:
+                return False, "Respuesta inválida del service"
+        except Exception as e:
+            return False, f"Error al crear:\n{e}"
+
+    def _actualizar_item(self, datos):
+        """Sobrescribe para usar usuario_modificador en vez de usuario"""
+        try:
+            datos['usuario_modificador'] = session_manager.get_usuario_actual() or "admin"
+            resultado = self.service.actualizar_usuario(**datos)
+
+            if isinstance(resultado, tuple) and len(resultado) >= 2:
+                return resultado[0], resultado[1]
+            else:
+                return False, "Respuesta inválida del service"
+        except Exception as e:
+            return False, f"Error al actualizar:\n{e}"
 
 
 # ========================================
