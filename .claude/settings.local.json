@@ -13,7 +13,12 @@
       "Bash(git add:*)",
       "Bash(git commit -m \"$(cat <<''EOF''\nfeat: punto de guardado antes de refactorización mayor\n\nCAMBIOS PRINCIPALES:\n- Fix: Corrección de importaciones en buscador_articulos.py (QTableWidgetItem)\n- Fix: Corrección campo u_medida en ventana_recepcion.py\n- Feature: Script limpiar_stocks.py para resetear movimientos\n- Docs: Auditoría completa del código (AUDITORIA.md)\n\nNUEVOS ARCHIVOS:\n- Documentación técnica completa del sistema\n- Scripts de testing y utilidades\n- Sistema de autenticación y session_manager\n- Repos y services completos\n- Ventanas de consultas avanzadas\n\nESTADO DEL SISTEMA:\n- 95% funcional y completo\n- Stocks limpiados a cero\n- Validaciones implementadas\n- Arquitectura 3 capas (con issues identificados)\n\nPRÓXIMO: Refactorización para centralizar estilos y mejorar arquitectura\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
       "Bash(git push:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(git reset:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: punto de guardado antes de refactorización mayor\n\nCAMBIOS PRINCIPALES:\n- Fix: Corrección de importaciones en buscador_articulos.py (QTableWidgetItem)\n- Fix: Corrección campo u_medida en ventana_recepcion.py  \n- Feature: Script limpiar_stocks.py para resetear movimientos\n- Docs: Auditoría completa del código (AUDITORIA.md)\n\nNUEVOS ARCHIVOS:\n- Documentación técnica completa del sistema\n- Scripts de testing y utilidades\n- Sistema de autenticación y session_manager\n- Repos y services completos\n- Ventanas de consultas avanzadas\n\nESTADO DEL SISTEMA:\n- 95% funcional y completo\n- Stocks limpiados a cero\n- Validaciones implementadas\n- Arquitectura 3 capas (con issues identificados)\n\nPRÓXIMO: Refactorización para centralizar estilos y mejorar arquitectura\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git commit:*)",
+      "Bash(gh pr create:*)"
     ],
     "deny": [],
     "ask": []

@@ -81,48 +81,30 @@ def ensure_schema() -> None:
 
 def list_furgonetas(include_inactive: bool = True) -> List[Dict[str, Any]]:
     """
-    Lista furgonetas desde la tabla almacenes (tipo='furgoneta').
-    IMPORTANTE: No usa la tabla 'furgonetas' antigua.
+    Lista furgonetas desde la tabla furgonetas.
     """
-    sql = """
-        SELECT id, nombre as matricula, NULL as marca, NULL as modelo,
-               NULL as anio, 1 as activa, NULL as notas, NULL as numero
-        FROM almacenes
-        WHERE tipo = 'furgoneta'
-    """
+    sql = "SELECT * FROM furgonetas"
     if not include_inactive:
-        sql += " AND activa = 1"
-    sql += " ORDER BY nombre"
+        sql += " WHERE activa = 1"
+    sql += " ORDER BY numero, matricula"
     return fetch_all(sql)
 
 
 def get_furgoneta(fid: int) -> Optional[Dict[str, Any]]:
     """
-    Obtiene una furgoneta por ID desde la tabla almacenes.
-    Retorna datos compatibles con el formato esperado por el diálogo.
+    Obtiene una furgoneta por ID desde la tabla furgonetas.
     """
-    result = fetch_one("SELECT id, nombre as matricula FROM almacenes WHERE id = ? AND tipo = 'furgoneta'", (fid,))
-    if result:
-        # Añadir campos adicionales como None para compatibilidad
-        result['marca'] = None
-        result['modelo'] = None
-        result['anio'] = None
-        result['activa'] = 1
-        result['notas'] = None
-        result['numero'] = None
-    return result
+    return fetch_one("SELECT * FROM furgonetas WHERE id = ?", (fid,))
 
 
 def create_furgoneta(matricula: str, marca: str = None, modelo: str = None, anio: int = None, notas: str = None, numero: int = None) -> int:
     """
-    Crea una nueva furgoneta en la tabla almacenes (tipo='furgoneta').
-    Solo usa el campo 'nombre' para guardar la matrícula.
-    Otros campos (marca, modelo, año) se ignoran por ahora ya que almacenes no los tiene.
+    Crea una nueva furgoneta en la tabla furgonetas.
     """
     with get_connection() as conn:
         cur = conn.execute(
-            "INSERT INTO almacenes(nombre, tipo) VALUES(?, 'furgoneta')",
-            (matricula.strip().upper(),)
+            "INSERT INTO furgonetas(numero, matricula, marca, modelo, anio, notas) VALUES(?,?,?,?,?,?)",
+            (numero, matricula.strip().upper(), marca, modelo, anio, notas)
         )
         conn.commit()
         return cur.lastrowid
@@ -130,21 +112,22 @@ def create_furgoneta(matricula: str, marca: str = None, modelo: str = None, anio
 
 def update_furgoneta(fid: int, matricula: str, marca: str = None, modelo: str = None, anio: int = None, activa: int = 1, notas: str = None, numero: int = None) -> None:
     """
-    Actualiza una furgoneta en la tabla almacenes.
-    Solo actualiza el campo 'nombre' (matrícula).
-    Otros campos se ignoran ya que almacenes no los tiene.
+    Actualiza una furgoneta en la tabla furgonetas.
     """
     execute_query(
-        "UPDATE almacenes SET nombre = ? WHERE id = ? AND tipo = 'furgoneta'",
-        (matricula.strip().upper(), fid)
+        """
+        UPDATE furgonetas SET numero=?, matricula=?, marca=?, modelo=?, anio=?, activa=?, notas=?
+        WHERE id = ?
+        """,
+        (numero, matricula.strip().upper(), marca, modelo, anio, int(bool(activa)), notas, fid)
     )
 
 
 def delete_furgoneta(fid: int) -> None:
     """
-    Elimina una furgoneta de la tabla almacenes.
+    Elimina una furgoneta de la tabla furgonetas.
     """
-    execute_query("DELETE FROM almacenes WHERE id = ? AND tipo = 'furgoneta'", (fid,))
+    execute_query("DELETE FROM furgonetas WHERE id = ?", (fid,))
 
 
 # -----------------------------
