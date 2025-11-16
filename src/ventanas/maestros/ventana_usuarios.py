@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QLineEdit, QLabel, QMessageBox,
     QHeaderView, QComboBox, QCheckBox
 )
+from PySide6.QtCore import Qt
 from src.ui.dialogo_maestro_base import DialogoMaestroBase
 from src.ui.ventana_maestro_base import VentanaMaestroBase
 from src.services import usuarios_service
