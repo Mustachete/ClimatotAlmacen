@@ -79,11 +79,16 @@ class VentanaPedidoIdeal(QWidget):
     def _crear_panel_configuracion(self) -> QGroupBox:
         """Crea el panel de configuración de parámetros"""
         panel = QGroupBox("⚙️ Configuración del Cálculo")
-        layout = QVBoxLayout()
-        
+
+        # Layout principal horizontal: Izquierda (controles) + Derecha (resumen)
+        layout_horizontal = QHBoxLayout()
+
+        # ===== LADO IZQUIERDO: Controles =====
+        layout_controles = QVBoxLayout()
+
         # Primera fila: Parámetros principales
         fila1 = QHBoxLayout()
-        
+
         fila1.addWidget(QLabel("Días de cobertura:"))
         self.spin_dias_cobertura = QSpinBox()
         self.spin_dias_cobertura.setRange(5, 90)
@@ -91,7 +96,7 @@ class VentanaPedidoIdeal(QWidget):
         self.spin_dias_cobertura.setSuffix(" días")
         self.spin_dias_cobertura.setToolTip("Días de stock que deseas mantener (ej: 20 días = 1 mes)")
         fila1.addWidget(self.spin_dias_cobertura)
-        
+
         fila1.addWidget(QLabel("Stock de seguridad:"))
         self.spin_dias_seguridad = QSpinBox()
         self.spin_dias_seguridad.setRange(0, 30)
@@ -99,7 +104,7 @@ class VentanaPedidoIdeal(QWidget):
         self.spin_dias_seguridad.setSuffix(" días")
         self.spin_dias_seguridad.setToolTip("Días extra de colchón por si hay picos de demanda")
         fila1.addWidget(self.spin_dias_seguridad)
-        
+
         fila1.addWidget(QLabel("Analizar últimos:"))
         self.combo_periodo = QComboBox()
         self.combo_periodo.addItem("30 días", 30)
@@ -109,67 +114,65 @@ class VentanaPedidoIdeal(QWidget):
         self.combo_periodo.setCurrentIndex(2)  # 90 días por defecto
         self.combo_periodo.setToolTip("Período histórico para calcular consumo medio")
         fila1.addWidget(self.combo_periodo)
-        
-        fila1.addStretch()
-        layout.addLayout(fila1)
-        
-        # Segunda fila: Filtros
+
+        layout_controles.addLayout(fila1)
+
+        # Segunda fila: Filtros + Botón Calcular
         fila2 = QHBoxLayout()
         fila2.addWidget(QLabel("Filtros:"))
-        
+
         self.check_bajo_alerta = QCheckBox("Solo bajo nivel de alerta")
         self.check_bajo_alerta.setChecked(True)
         fila2.addWidget(self.check_bajo_alerta)
-        
+
         self.check_criticos = QCheckBox("Solo artículos críticos")
         fila2.addWidget(self.check_criticos)
-        
+
         self.check_con_proveedor = QCheckBox("Solo con proveedor asignado")
         fila2.addWidget(self.check_con_proveedor)
-        
+
         self.check_excluir_sin_consumo = QCheckBox("Excluir sin consumo")
         self.check_excluir_sin_consumo.setChecked(True)
         fila2.addWidget(self.check_excluir_sin_consumo)
-        
-        fila2.addStretch()
-        layout.addLayout(fila2)
-        
-        # Tercera fila: Botón calcular y resumen al lado
-        fila3 = QHBoxLayout()
 
-        # Botón calcular a la izquierda
+        # Botón calcular al final de la fila de filtros
         btn_calcular = QPushButton("🔍 CALCULAR PEDIDO")
         btn_calcular.setMinimumHeight(50)
-        btn_calcular.setMinimumWidth(200)
-        btn_calcular.setMaximumWidth(250)
+        btn_calcular.setMinimumWidth(180)
+        btn_calcular.setMaximumWidth(220)
         btn_calcular.setStyleSheet("""
             QPushButton {
                 background: #3b82f6;
                 color: white;
                 border-radius: 4px;
                 font-weight: bold;
-                font-size: 14px;
+                font-size: 13px;
             }
             QPushButton:hover {
                 background: #2563eb;
             }
         """)
         btn_calcular.clicked.connect(self._calcular_pedido)
-        fila3.addWidget(btn_calcular)
+        fila2.addWidget(btn_calcular)
 
-        # Panel de resumen a la derecha (ocupa el espacio restante)
+        layout_controles.addLayout(fila2)
+
+        # ===== LADO DERECHO: Panel de Resumen =====
         self.label_resumen = QLabel("Configure los parámetros y presione 'Calcular Pedido'")
         self.label_resumen.setStyleSheet(ESTILO_ALERTA_INFO + """
             padding: 10px;
             border-radius: 4px;
         """)
-        self.label_resumen.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.label_resumen.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.label_resumen.setWordWrap(True)
-        fila3.addWidget(self.label_resumen, 1)  # stretch factor 1 para que ocupe espacio
+        self.label_resumen.setMinimumWidth(300)
+        self.label_resumen.setMaximumWidth(400)
 
-        layout.addLayout(fila3)
-        
-        panel.setLayout(layout)
+        # Agregar al layout horizontal
+        layout_horizontal.addLayout(layout_controles, 2)  # 2/3 del espacio
+        layout_horizontal.addWidget(self.label_resumen, 1)  # 1/3 del espacio
+
+        panel.setLayout(layout_horizontal)
         return panel
     
     # ========================================
