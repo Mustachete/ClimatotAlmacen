@@ -165,14 +165,14 @@ class VentanaPedidoIdeal(QWidget):
         # ===== LADO DERECHO: Panel de Resumen en 2 columnas =====
         self.label_resumen = QLabel("Configure los parámetros y presione 'Calcular Pedido'")
         self.label_resumen.setStyleSheet(ESTILO_ALERTA_INFO + """
-            padding: 6px;
+            padding: 8px;
             border-radius: 4px;
-            font-size: 9px;
+            font-size: 11px;
         """)
         self.label_resumen.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.label_resumen.setWordWrap(True)
-        self.label_resumen.setMinimumWidth(240)
-        self.label_resumen.setMaximumWidth(280)
+        self.label_resumen.setMinimumWidth(320)
+        self.label_resumen.setMaximumWidth(380)
 
         # Agregar al layout horizontal
         layout_horizontal.addLayout(layout_controles, 2)  # 2/3 del espacio
@@ -316,16 +316,16 @@ class VentanaPedidoIdeal(QWidget):
         texto = f"""
 <style>
     table {{ width: 100%; border-spacing: 0; }}
-    td {{ padding: 1px 3px; vertical-align: top; font-size: 9px; }}
+    td {{ padding: 2px 8px; vertical-align: top; font-size: 10px; }}
     .col {{ width: 50%; }}
     .label {{ font-weight: bold; }}
     .value {{ text-align: right; }}
-    .section {{ font-weight: bold; margin-top: 4px; }}
+    .section {{ font-weight: bold; margin-top: 5px; margin-bottom: 2px; }}
 </style>
-<div style='font-weight: bold; font-size: 10px; margin-bottom: 4px;'>📊 RESUMEN DEL PEDIDO:</div>
+<div style='font-weight: bold; font-size: 11px; margin-bottom: 5px;'>📊 RESUMEN DEL PEDIDO:</div>
 <table>
 <tr>
-    <td class="col">
+    <td class="col" style="padding-right: 12px;">
         <div class="label">Total analizados:</div>
         <div class="value">{resumen['total_articulos']}</div>
         <div class="label">Necesitan pedido:</div>
@@ -339,9 +339,9 @@ class VentanaPedidoIdeal(QWidget):
         <div class="label">🟢 Normales:</div>
         <div class="value">{resumen['articulos_normales']}</div>
     </td>
-    <td class="col">
+    <td class="col" style="padding-left: 12px; border-left: 1px solid #ddd;">
         <div class="section">Coste estimado:</div>
-        <div style='font-size:12px; color:#dc2626; font-weight:bold;'>{pedido_ideal_service.formatear_coste(resumen['coste_total'])}</div>
+        <div style='font-size:13px; color:#dc2626; font-weight:bold;'>{pedido_ideal_service.formatear_coste(resumen['coste_total'])}</div>
         <div class="label">Críticos:</div>
         <div class="value">{pedido_ideal_service.formatear_coste(resumen['coste_criticos'])}</div>
         <div class="label">Preventivos:</div>
