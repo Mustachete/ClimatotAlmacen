@@ -14,6 +14,9 @@ from src.ui.widgets_base import (
 )
 from src.core.db_utils import get_con
 
+# Directorio base del proyecto
+BASE = Path(__file__).parent.parent.parent
+
 # ========================================
 # VENTANA DE CONSULTA DE STOCK
 # ========================================
@@ -69,7 +72,7 @@ class VentanaStock(QWidget):
         
         # Checkbox solo con stock
         self.chk_con_stock = QCheckBox("Solo con stock")
-        self.chk_con_stock.setChecked(True)
+        self.chk_con_stock.setChecked(False)  # Por defecto mostrar todos
         self.chk_con_stock.stateChanged.connect(self.aplicar_filtros)
         
         # Checkbox alertas
