@@ -165,14 +165,14 @@ class VentanaPedidoIdeal(QWidget):
         # ===== LADO DERECHO: Panel de Resumen en 2 columnas =====
         self.label_resumen = QLabel("Configure los parámetros y presione 'Calcular Pedido'")
         self.label_resumen.setStyleSheet(ESTILO_ALERTA_INFO + """
-            padding: 8px;
+            padding: 6px;
             border-radius: 4px;
-            font-size: 10px;
+            font-size: 9px;
         """)
         self.label_resumen.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.label_resumen.setWordWrap(True)
-        self.label_resumen.setMinimumWidth(280)
-        self.label_resumen.setMaximumWidth(350)
+        self.label_resumen.setMinimumWidth(240)
+        self.label_resumen.setMaximumWidth(280)
 
         # Agregar al layout horizontal
         layout_horizontal.addLayout(layout_controles, 2)  # 2/3 del espacio
@@ -309,40 +309,50 @@ class VentanaPedidoIdeal(QWidget):
             traceback.print_exc()
     
     def _actualizar_resumen(self):
-        """Actualiza el panel de resumen con estadísticas en formato compacto de 2 columnas"""
+        """Actualiza el panel de resumen con estadísticas en formato compacto de 2 columnas verticales"""
         resumen = pedido_ideal_service.calcular_resumen(self.pedidos_calculados)
 
-        # Formato más compacto con tabla HTML de 2 columnas
+        # Formato en 2 columnas verticales usando tabla HTML
         texto = f"""
 <style>
     table {{ width: 100%; border-spacing: 0; }}
-    td {{ padding: 2px 4px; vertical-align: top; }}
-    .label {{ font-weight: bold; width: 50%; }}
-    .value {{ text-align: right; width: 50%; }}
+    td {{ padding: 1px 3px; vertical-align: top; font-size: 9px; }}
+    .col {{ width: 50%; }}
+    .label {{ font-weight: bold; }}
+    .value {{ text-align: right; }}
+    .section {{ font-weight: bold; margin-top: 4px; }}
 </style>
-<b>📊 RESUMEN DEL PEDIDO:</b><br>
+<div style='font-weight: bold; font-size: 10px; margin-bottom: 4px;'>📊 RESUMEN DEL PEDIDO:</div>
 <table>
-<tr><td class="label">Total analizados:</td><td class="value">{resumen['total_articulos']}</td></tr>
-<tr><td class="label">Necesitan pedido:</td><td class="value">{resumen['articulos_con_pedido']}</td></tr>
-</table>
-<br>
-<b>Por prioridad:</b><br>
-<table>
-<tr><td class="label">🔴 Críticos:</td><td class="value">{resumen['articulos_criticos']}</td></tr>
-<tr><td class="label">🟡 Preventivos:</td><td class="value">{resumen['articulos_preventivos']}</td></tr>
-<tr><td class="label">🟢 Normales:</td><td class="value">{resumen['articulos_normales']}</td></tr>
-</table>
-<br>
-<b>Coste total estimado:</b><br>
-<span style='font-size:14px; color:#dc2626;'><b>{pedido_ideal_service.formatear_coste(resumen['coste_total'])}</b></span><br>
-<table>
-<tr><td class="label">Críticos:</td><td class="value">{pedido_ideal_service.formatear_coste(resumen['coste_criticos'])}</td></tr>
-<tr><td class="label">Preventivos:</td><td class="value">{pedido_ideal_service.formatear_coste(resumen['coste_preventivos'])}</td></tr>
-</table>
-<br>
-<table>
-<tr><td class="label">Proveedores:</td><td class="value">{len(self.grupos_proveedores)}</td></tr>
-<tr><td class="label">⚠️ Sin proveedor:</td><td class="value">{resumen['articulos_sin_proveedor']}</td></tr>
+<tr>
+    <td class="col">
+        <div class="label">Total analizados:</div>
+        <div class="value">{resumen['total_articulos']}</div>
+        <div class="label">Necesitan pedido:</div>
+        <div class="value">{resumen['articulos_con_pedido']}</div>
+        <br>
+        <div class="section">Por prioridad:</div>
+        <div class="label">🔴 Críticos:</div>
+        <div class="value">{resumen['articulos_criticos']}</div>
+        <div class="label">🟡 Preventivos:</div>
+        <div class="value">{resumen['articulos_preventivos']}</div>
+        <div class="label">🟢 Normales:</div>
+        <div class="value">{resumen['articulos_normales']}</div>
+    </td>
+    <td class="col">
+        <div class="section">Coste estimado:</div>
+        <div style='font-size:12px; color:#dc2626; font-weight:bold;'>{pedido_ideal_service.formatear_coste(resumen['coste_total'])}</div>
+        <div class="label">Críticos:</div>
+        <div class="value">{pedido_ideal_service.formatear_coste(resumen['coste_criticos'])}</div>
+        <div class="label">Preventivos:</div>
+        <div class="value">{pedido_ideal_service.formatear_coste(resumen['coste_preventivos'])}</div>
+        <br>
+        <div class="label">Proveedores:</div>
+        <div class="value">{len(self.grupos_proveedores)}</div>
+        <div class="label">⚠️ Sin proveedor:</div>
+        <div class="value">{resumen['articulos_sin_proveedor']}</div>
+    </td>
+</tr>
 </table>
         """
         self.label_resumen.setText(texto)
