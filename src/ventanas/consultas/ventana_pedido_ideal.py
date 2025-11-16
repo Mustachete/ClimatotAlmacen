@@ -115,58 +115,71 @@ class VentanaPedidoIdeal(QWidget):
         self.combo_periodo.setToolTip("Período histórico para calcular consumo medio")
         fila1.addWidget(self.combo_periodo)
 
+        fila1.addStretch()
         layout_controles.addLayout(fila1)
 
-        # Segunda fila: Filtros + Botón Calcular
+        # Segunda fila: Label "Filtros:" + Botón debajo (columna izquierda) + Checkboxes (columna derecha)
         fila2 = QHBoxLayout()
-        fila2.addWidget(QLabel("Filtros:"))
 
-        self.check_bajo_alerta = QCheckBox("Solo bajo nivel de alerta")
-        self.check_bajo_alerta.setChecked(True)
-        fila2.addWidget(self.check_bajo_alerta)
+        # Columna izquierda: Label "Filtros:" y botón debajo
+        col_filtros_boton = QVBoxLayout()
+        col_filtros_boton.addWidget(QLabel("Filtros:"))
 
-        self.check_criticos = QCheckBox("Solo artículos críticos")
-        fila2.addWidget(self.check_criticos)
-
-        self.check_con_proveedor = QCheckBox("Solo con proveedor asignado")
-        fila2.addWidget(self.check_con_proveedor)
-
-        self.check_excluir_sin_consumo = QCheckBox("Excluir sin consumo")
-        self.check_excluir_sin_consumo.setChecked(True)
-        fila2.addWidget(self.check_excluir_sin_consumo)
-
-        # Botón calcular al final de la fila de filtros
         btn_calcular = QPushButton("🔍 CALCULAR PEDIDO")
-        btn_calcular.setMinimumHeight(50)
-        btn_calcular.setMinimumWidth(180)
-        btn_calcular.setMaximumWidth(220)
+        btn_calcular.setMinimumHeight(45)
+        btn_calcular.setFixedWidth(160)
         btn_calcular.setStyleSheet("""
             QPushButton {
                 background: #3b82f6;
                 color: white;
                 border-radius: 4px;
                 font-weight: bold;
-                font-size: 13px;
+                font-size: 12px;
             }
             QPushButton:hover {
                 background: #2563eb;
             }
         """)
         btn_calcular.clicked.connect(self._calcular_pedido)
-        fila2.addWidget(btn_calcular)
+        col_filtros_boton.addWidget(btn_calcular)
+        col_filtros_boton.addStretch()
+
+        fila2.addLayout(col_filtros_boton)
+
+        # Columna derecha: Checkboxes en vertical
+        col_checkboxes = QVBoxLayout()
+        col_checkboxes.setSpacing(3)
+
+        self.check_bajo_alerta = QCheckBox("Solo bajo nivel de alerta")
+        self.check_bajo_alerta.setChecked(True)
+        col_checkboxes.addWidget(self.check_bajo_alerta)
+
+        self.check_criticos = QCheckBox("Solo artículos críticos")
+        col_checkboxes.addWidget(self.check_criticos)
+
+        self.check_con_proveedor = QCheckBox("Solo con proveedor asignado")
+        col_checkboxes.addWidget(self.check_con_proveedor)
+
+        self.check_excluir_sin_consumo = QCheckBox("Excluir sin consumo")
+        self.check_excluir_sin_consumo.setChecked(True)
+        col_checkboxes.addWidget(self.check_excluir_sin_consumo)
+
+        fila2.addLayout(col_checkboxes)
+        fila2.addStretch()
 
         layout_controles.addLayout(fila2)
 
-        # ===== LADO DERECHO: Panel de Resumen =====
+        # ===== LADO DERECHO: Panel de Resumen en 2 columnas =====
         self.label_resumen = QLabel("Configure los parámetros y presione 'Calcular Pedido'")
         self.label_resumen.setStyleSheet(ESTILO_ALERTA_INFO + """
-            padding: 10px;
+            padding: 8px;
             border-radius: 4px;
+            font-size: 11px;
         """)
         self.label_resumen.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.label_resumen.setWordWrap(True)
-        self.label_resumen.setMinimumWidth(300)
-        self.label_resumen.setMaximumWidth(400)
+        self.label_resumen.setMinimumWidth(350)
+        self.label_resumen.setMaximumWidth(450)
 
         # Agregar al layout horizontal
         layout_horizontal.addLayout(layout_controles, 2)  # 2/3 del espacio
@@ -303,26 +316,41 @@ class VentanaPedidoIdeal(QWidget):
             traceback.print_exc()
     
     def _actualizar_resumen(self):
-        """Actualiza el panel de resumen con estadísticas"""
+        """Actualiza el panel de resumen con estadísticas en formato compacto de 2 columnas"""
         resumen = pedido_ideal_service.calcular_resumen(self.pedidos_calculados)
-        
+
+        # Formato más compacto con tabla HTML de 2 columnas
         texto = f"""
+<style>
+    table {{ width: 100%; border-spacing: 0; }}
+    td {{ padding: 2px 4px; vertical-align: top; }}
+    .label {{ font-weight: bold; width: 50%; }}
+    .value {{ text-align: right; width: 50%; }}
+</style>
 <b>📊 RESUMEN DEL PEDIDO:</b><br>
-<br>
-<b>Total de artículos analizados:</b> {resumen['total_articulos']}<br>
-<b>Artículos que necesitan pedido:</b> {resumen['articulos_con_pedido']}<br>
+<table>
+<tr><td class="label">Total analizados:</td><td class="value">{resumen['total_articulos']}</td></tr>
+<tr><td class="label">Necesitan pedido:</td><td class="value">{resumen['articulos_con_pedido']}</td></tr>
+</table>
 <br>
 <b>Por prioridad:</b><br>
-• 🔴 Críticos: {resumen['articulos_criticos']}<br>
-• 🟡 Preventivos: {resumen['articulos_preventivos']}<br>
-• 🟢 Normales: {resumen['articulos_normales']}<br>
+<table>
+<tr><td class="label">🔴 Críticos:</td><td class="value">{resumen['articulos_criticos']}</td></tr>
+<tr><td class="label">🟡 Preventivos:</td><td class="value">{resumen['articulos_preventivos']}</td></tr>
+<tr><td class="label">🟢 Normales:</td><td class="value">{resumen['articulos_normales']}</td></tr>
+</table>
 <br>
-<b>Coste total estimado:</b> <span style='font-size:16px; color:#dc2626;'><b>{pedido_ideal_service.formatear_coste(resumen['coste_total'])}</b></span><br>
-<b>  - Críticos:</b> {pedido_ideal_service.formatear_coste(resumen['coste_criticos'])}<br>
-<b>  - Preventivos:</b> {pedido_ideal_service.formatear_coste(resumen['coste_preventivos'])}<br>
+<b>Coste total estimado:</b><br>
+<span style='font-size:14px; color:#dc2626;'><b>{pedido_ideal_service.formatear_coste(resumen['coste_total'])}</b></span><br>
+<table>
+<tr><td class="label">Críticos:</td><td class="value">{pedido_ideal_service.formatear_coste(resumen['coste_criticos'])}</td></tr>
+<tr><td class="label">Preventivos:</td><td class="value">{pedido_ideal_service.formatear_coste(resumen['coste_preventivos'])}</td></tr>
+</table>
 <br>
-<b>Proveedores involucrados:</b> {len(self.grupos_proveedores)}<br>
-<b>⚠️ Artículos sin proveedor:</b> {resumen['articulos_sin_proveedor']}
+<table>
+<tr><td class="label">Proveedores:</td><td class="value">{len(self.grupos_proveedores)}</td></tr>
+<tr><td class="label">⚠️ Sin proveedor:</td><td class="value">{resumen['articulos_sin_proveedor']}</td></tr>
+</table>
         """
         self.label_resumen.setText(texto)
     
