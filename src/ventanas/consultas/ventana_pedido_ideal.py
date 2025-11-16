@@ -118,68 +118,61 @@ class VentanaPedidoIdeal(QWidget):
         fila1.addStretch()
         layout_controles.addLayout(fila1)
 
-        # Segunda fila: Label "Filtros:" + Botón debajo (columna izquierda) + Checkboxes (columna derecha)
+        # Segunda fila: Filtros (label + checkboxes en horizontal)
         fila2 = QHBoxLayout()
+        fila2.addWidget(QLabel("Filtros:"))
 
-        # Columna izquierda: Label "Filtros:" y botón debajo
-        col_filtros_boton = QVBoxLayout()
-        col_filtros_boton.addWidget(QLabel("Filtros:"))
+        self.check_bajo_alerta = QCheckBox("Solo bajo nivel de alerta")
+        self.check_bajo_alerta.setChecked(True)
+        fila2.addWidget(self.check_bajo_alerta)
 
+        self.check_criticos = QCheckBox("Solo artículos críticos")
+        fila2.addWidget(self.check_criticos)
+
+        self.check_con_proveedor = QCheckBox("Solo con proveedor asignado")
+        fila2.addWidget(self.check_con_proveedor)
+
+        self.check_excluir_sin_consumo = QCheckBox("Excluir sin consumo")
+        self.check_excluir_sin_consumo.setChecked(True)
+        fila2.addWidget(self.check_excluir_sin_consumo)
+
+        fila2.addStretch()
+        layout_controles.addLayout(fila2)
+
+        # Tercera fila: Botón calcular
+        fila3 = QHBoxLayout()
         btn_calcular = QPushButton("🔍 CALCULAR PEDIDO")
-        btn_calcular.setMinimumHeight(45)
-        btn_calcular.setFixedWidth(160)
+        btn_calcular.setMinimumHeight(50)
+        btn_calcular.setMinimumWidth(180)
+        btn_calcular.setMaximumWidth(220)
         btn_calcular.setStyleSheet("""
             QPushButton {
                 background: #3b82f6;
                 color: white;
                 border-radius: 4px;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 13px;
             }
             QPushButton:hover {
                 background: #2563eb;
             }
         """)
         btn_calcular.clicked.connect(self._calcular_pedido)
-        col_filtros_boton.addWidget(btn_calcular)
-        col_filtros_boton.addStretch()
-
-        fila2.addLayout(col_filtros_boton)
-
-        # Columna derecha: Checkboxes en vertical
-        col_checkboxes = QVBoxLayout()
-        col_checkboxes.setSpacing(3)
-
-        self.check_bajo_alerta = QCheckBox("Solo bajo nivel de alerta")
-        self.check_bajo_alerta.setChecked(True)
-        col_checkboxes.addWidget(self.check_bajo_alerta)
-
-        self.check_criticos = QCheckBox("Solo artículos críticos")
-        col_checkboxes.addWidget(self.check_criticos)
-
-        self.check_con_proveedor = QCheckBox("Solo con proveedor asignado")
-        col_checkboxes.addWidget(self.check_con_proveedor)
-
-        self.check_excluir_sin_consumo = QCheckBox("Excluir sin consumo")
-        self.check_excluir_sin_consumo.setChecked(True)
-        col_checkboxes.addWidget(self.check_excluir_sin_consumo)
-
-        fila2.addLayout(col_checkboxes)
-        fila2.addStretch()
-
-        layout_controles.addLayout(fila2)
+        fila3.addWidget(btn_calcular)
+        fila3.addStretch()
+        layout_controles.addLayout(fila3)
 
         # ===== LADO DERECHO: Panel de Resumen en 2 columnas =====
         self.label_resumen = QLabel("Configure los parámetros y presione 'Calcular Pedido'")
         self.label_resumen.setStyleSheet(ESTILO_ALERTA_INFO + """
             padding: 8px;
             border-radius: 4px;
-            font-size: 11px;
+            font-size: 10px;
         """)
         self.label_resumen.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.label_resumen.setWordWrap(True)
-        self.label_resumen.setMinimumWidth(350)
-        self.label_resumen.setMaximumWidth(450)
+        self.label_resumen.setMinimumWidth(280)
+        self.label_resumen.setMaximumWidth(350)
 
         # Agregar al layout horizontal
         layout_horizontal.addLayout(layout_controles, 2)  # 2/3 del espacio
