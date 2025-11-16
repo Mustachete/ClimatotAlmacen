@@ -52,14 +52,9 @@ class VentanaPedidoIdeal(QWidget):
         titulo.setStyleSheet(ESTILO_TITULO_VENTANA)
         layout.addWidget(titulo)
         
-        # Panel de configuración
+        # Panel de configuración (ahora incluye el resumen al lado)
         layout.addWidget(self._crear_panel_configuracion())
-        
-        # Panel de resumen
-        self.label_resumen = QLabel("Configure los parámetros y presione 'Calcular Pedido'")
-        self.label_resumen.setStyleSheet(ESTILO_ALERTA_INFO)
-        layout.addWidget(self.label_resumen)
-        
+
         # Tabs: Vista general y por proveedor
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(ESTILO_TABS)
@@ -139,13 +134,14 @@ class VentanaPedidoIdeal(QWidget):
         fila2.addStretch()
         layout.addLayout(fila2)
         
-        # Botón calcular
+        # Tercera fila: Botón calcular y resumen al lado
         fila3 = QHBoxLayout()
-        fila3.addStretch()
-        
+
+        # Botón calcular a la izquierda
         btn_calcular = QPushButton("🔍 CALCULAR PEDIDO")
-        btn_calcular.setMinimumHeight(40)
+        btn_calcular.setMinimumHeight(50)
         btn_calcular.setMinimumWidth(200)
+        btn_calcular.setMaximumWidth(250)
         btn_calcular.setStyleSheet("""
             QPushButton {
                 background: #3b82f6;
@@ -160,8 +156,17 @@ class VentanaPedidoIdeal(QWidget):
         """)
         btn_calcular.clicked.connect(self._calcular_pedido)
         fila3.addWidget(btn_calcular)
-        
-        fila3.addStretch()
+
+        # Panel de resumen a la derecha (ocupa el espacio restante)
+        self.label_resumen = QLabel("Configure los parámetros y presione 'Calcular Pedido'")
+        self.label_resumen.setStyleSheet(ESTILO_ALERTA_INFO + """
+            padding: 10px;
+            border-radius: 4px;
+        """)
+        self.label_resumen.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.label_resumen.setWordWrap(True)
+        fila3.addWidget(self.label_resumen, 1)  # stretch factor 1 para que ocupe espacio
+
         layout.addLayout(fila3)
         
         panel.setLayout(layout)
