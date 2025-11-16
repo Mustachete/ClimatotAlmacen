@@ -1,7 +1,7 @@
 # ventana_stock.py - Consulta de Stock
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidgetItem, QLineEdit,
-    QMessageBox, QComboBox, QHeaderView, QCheckBox
+    QMessageBox, QComboBox, QHeaderView, QCheckBox, QLabel
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
