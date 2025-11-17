@@ -6,13 +6,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QColor
 from pathlib import Path
-import sqlite3
 import datetime
 from src.ui.estilos import ESTILO_VENTANA
 from src.ui.widgets_base import (
     TituloVentana, PanelFiltros, TablaEstandar, BotonPrimario, BotonSecundario
 )
-from src.core.db_utils import get_con
+from src.services import almacenes_service, movimientos_service
 
 class VentanaHistorico(QWidget):
     def __init__(self, parent=None):
@@ -167,15 +166,11 @@ class VentanaHistorico(QWidget):
     def cargar_almacenes(self):
         """Carga almacenes en el combo"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("SELECT id, nombre FROM almacenes ORDER BY nombre")
-            rows = cur.fetchall()
-            con.close()
-            
+            almacenes = almacenes_service.obtener_almacenes()
+
             self.cmb_almacen.addItem("Todos", None)
-            for row in rows:
-                self.cmb_almacen.addItem(row[1], row[0])
+            for alm in almacenes:
+                self.cmb_almacen.addItem(alm['nombre'], alm['id'])
         except Exception:
             pass
     
@@ -200,95 +195,59 @@ class VentanaHistorico(QWidget):
     def buscar(self):
         """Busca movimientos según filtros"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            
-            # Construir query
-            query = """
-                SELECT 
-                    m.id,
-                    m.fecha,
-                    m.tipo,
-                    alm_origen.nombre as origen,
-                    alm_destino.nombre as destino,
-                    art.nombre as articulo,
-                    m.cantidad,
-                    m.coste_unit,
-                    m.ot,
-                    m.responsable,
-                    m.motivo
-                FROM movimientos m
-                LEFT JOIN almacenes alm_origen ON m.origen_id = alm_origen.id
-                LEFT JOIN almacenes alm_destino ON m.destino_id = alm_destino.id
-                LEFT JOIN articulos art ON m.articulo_id = art.id
-                WHERE 1=1
-            """
-            
-            params = []
-            
+            # Preparar filtros
+            filtros = {}
+
             # Filtro de fechas
             if self.chk_fecha.isChecked():
-                fecha_desde = self.date_desde.date().toString("yyyy-MM-dd")
-                fecha_hasta = self.date_hasta.date().toString("yyyy-MM-dd")
-                query += " AND m.fecha BETWEEN ? AND ?"
-                params.extend([fecha_desde, fecha_hasta])
-            
+                filtros['fecha_desde'] = self.date_desde.date().toString("yyyy-MM-dd")
+                filtros['fecha_hasta'] = self.date_hasta.date().toString("yyyy-MM-dd")
+
             # Filtro de tipo
             if self.cmb_tipo.currentIndex() > 0:
-                query += " AND m.tipo = ?"
-                params.append(self.cmb_tipo.currentText())
-            
+                filtros['tipo'] = self.cmb_tipo.currentText()
+
             # Filtro de almacén (origen o destino)
             almacen_id = self.cmb_almacen.currentData()
             if almacen_id:
-                query += " AND (m.origen_id = ? OR m.destino_id = ?)"
-                params.extend([almacen_id, almacen_id])
-            
+                filtros['almacen_id'] = almacen_id
+
             # Filtro de artículo
             texto_articulo = self.txt_articulo.text().strip()
             if texto_articulo:
-                query += " AND (art.nombre LIKE ? OR art.ean LIKE ? OR art.ref_proveedor LIKE ?)"
-                params.extend([f"%{texto_articulo}%"] * 3)
-            
+                filtros['articulo_filtro'] = texto_articulo
+
             # Filtro de OT
             ot = self.txt_ot.text().strip()
             if ot:
-                query += " AND m.ot LIKE ?"
-                params.append(f"%{ot}%")
-            
+                filtros['ot'] = ot
+
             # Filtro de responsable
             responsable = self.txt_responsable.text().strip()
             if responsable:
-                query += " AND m.responsable LIKE ?"
-                params.append(f"%{responsable}%")
-            
-            # Ordenar por fecha descendente
-            query += " ORDER BY m.fecha DESC, m.id DESC"
-            
-            # Limitar a 1000 resultados
-            query += " LIMIT 1000"
-            
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            con.close()
-            
+                filtros['responsable'] = responsable
+
+            # Usar movimientos_service en lugar de SQL directo
+            rows = movimientos_service.obtener_movimientos_filtrados(**filtros)
+
+
             # Mostrar en tabla
             self.tabla.setRowCount(len(rows))
-            
+
             for i, row in enumerate(rows):
                 # ID
-                self.tabla.setItem(i, 0, QTableWidgetItem(str(row[0])))
-                
+                self.tabla.setItem(i, 0, QTableWidgetItem(str(row['id'])))
+
                 # Fecha
                 try:
-                    fecha_obj = datetime.datetime.strptime(row[1], "%Y-%m-%d")
+                    fecha_obj = datetime.datetime.strptime(row['fecha'], "%Y-%m-%d")
                     fecha_str = fecha_obj.strftime("%d/%m/%Y")
                 except:
-                    fecha_str = row[1]
+                    fecha_str = row['fecha']
                 self.tabla.setItem(i, 1, QTableWidgetItem(fecha_str))
-                
+
                 # Tipo con color
-                tipo = row[2]
+                tipo = row['tipo']
                 item_tipo = QTableWidgetItem(tipo)
                 if tipo == "ENTRADA":
                     item_tipo.setBackground(QColor("#d1fae5"))
@@ -301,37 +260,37 @@ class VentanaHistorico(QWidget):
                 elif tipo == "DEVOLUCION":
                     item_tipo.setBackground(QColor("#fce7f3"))
                 self.tabla.setItem(i, 2, item_tipo)
-                
+
                 # Origen
-                self.tabla.setItem(i, 3, QTableWidgetItem(row[3] or "-"))
-                
+                self.tabla.setItem(i, 3, QTableWidgetItem(row.get('origen') or "-"))
+
                 # Destino
-                self.tabla.setItem(i, 4, QTableWidgetItem(row[4] or "-"))
-                
+                self.tabla.setItem(i, 4, QTableWidgetItem(row.get('destino') or "-"))
+
                 # Artículo
-                self.tabla.setItem(i, 5, QTableWidgetItem(row[5]))
-                
+                self.tabla.setItem(i, 5, QTableWidgetItem(row['articulo']))
+
                 # Cantidad
-                item_cant = QTableWidgetItem(f"{row[6]:.2f}")
+                item_cant = QTableWidgetItem(f"{row['cantidad']:.2f}")
                 item_cant.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.tabla.setItem(i, 6, item_cant)
-                
+
                 # Coste
-                if row[7]:
-                    item_coste = QTableWidgetItem(f"€ {row[7]:.2f}")
+                if row.get('coste_unit'):
+                    item_coste = QTableWidgetItem(f"€ {row['coste_unit']:.2f}")
                     item_coste.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     self.tabla.setItem(i, 7, item_coste)
                 else:
                     self.tabla.setItem(i, 7, QTableWidgetItem("-"))
-                
+
                 # OT
-                self.tabla.setItem(i, 8, QTableWidgetItem(row[8] or "-"))
-                
+                self.tabla.setItem(i, 8, QTableWidgetItem(row.get('ot') or "-"))
+
                 # Responsable
-                self.tabla.setItem(i, 9, QTableWidgetItem(row[9] or "-"))
-                
+                self.tabla.setItem(i, 9, QTableWidgetItem(row.get('responsable') or "-"))
+
                 # Motivo
-                self.tabla.setItem(i, 10, QTableWidgetItem(row[10] or "-"))
+                self.tabla.setItem(i, 10, QTableWidgetItem(row.get('motivo') or "-"))
             
             # Actualizar resumen
             self.lbl_resumen.setText(f"📋 Mostrando {len(rows)} movimiento(s)")
