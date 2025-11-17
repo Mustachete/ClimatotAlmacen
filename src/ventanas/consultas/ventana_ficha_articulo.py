@@ -11,7 +11,7 @@ from pathlib import Path
 import sqlite3
 import datetime
 from src.ui.estilos import ESTILO_VENTANA
-from src.core.db_utils import get_con
+from src.services import articulos_service, stock_service, movimientos_service
 
 class VentanaFichaArticulo(QWidget):
     def __init__(self, parent=None, articulo_id=None):
