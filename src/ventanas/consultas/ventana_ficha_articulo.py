@@ -8,10 +8,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from pathlib import Path
-import sqlite3
 import datetime
 from src.ui.estilos import ESTILO_VENTANA
 from src.services import articulos_service, stock_service, movimientos_service
+from src.repos import articulos_repo, stock_repo, movimientos_repo
 
 class VentanaFichaArticulo(QWidget):
     def __init__(self, parent=None, articulo_id=None):
