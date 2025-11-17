@@ -1,6 +1,7 @@
 """
 Repositorios - Capa de acceso a datos
 """
+from . import albaranes_repo
 from . import almacenes_repo
 from . import articulos_repo
 from . import familias_repo
@@ -13,6 +14,7 @@ from . import ubicaciones_repo
 from . import usuarios_repo
 
 __all__ = [
+    'albaranes_repo',
     'almacenes_repo',
     'articulos_repo',
     'familias_repo',

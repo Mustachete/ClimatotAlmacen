@@ -7,10 +7,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QShortcut, QKeySequence
 
 from src.ui.ventana_operativa_base import VentanaOperativaBase
-from src.core.db_utils import get_con
 from src.services import movimientos_service, historial_service
 from src.core.session_manager import session_manager
-from src.repos import movimientos_repo
+from src.repos import movimientos_repo, articulos_repo
 
 
 # ========================================
@@ -148,39 +147,26 @@ class VentanaDevolucion(VentanaOperativaBase):
     def cargar_proveedores(self):
         """Carga los proveedores"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("SELECT id, nombre FROM proveedores ORDER BY nombre")
-            rows = cur.fetchall()
-            con.close()
+            proveedores = articulos_repo.get_proveedores()
 
             self.cmb_proveedor.addItem("(Seleccione proveedor)", None)
-            for row in rows:
-                self.cmb_proveedor.addItem(row[1], row[0])
+            for prov in proveedores:
+                self.cmb_proveedor.addItem(prov['nombre'], prov['id'])
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar proveedores:\n{e}")
 
     def cargar_articulos(self):
         """Carga los artículos activos"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("""
-                SELECT id, nombre, u_medida
-                FROM articulos
-                WHERE activo=1
-                ORDER BY nombre
-            """)
-            rows = cur.fetchall()
-            con.close()
+            articulos = articulos_repo.get_todos(solo_activos=True, limit=5000)
 
             self.cmb_articulo.addItem("(Seleccione artículo)", None)
-            for row in rows:
-                texto = f"{row[1]} ({row[2]})"
+            for art in articulos:
+                texto = f"{art['nombre']} ({art['u_medida']})"
                 self.cmb_articulo.addItem(texto, {
-                    'id': row[0],
-                    'nombre': row[1],
-                    'u_medida': row[2]
+                    'id': art['id'],
+                    'nombre': art['nombre'],
+                    'u_medida': art['u_medida']
                 })
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar artículos:\n{e}")

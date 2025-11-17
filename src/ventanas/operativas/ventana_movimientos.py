@@ -10,11 +10,10 @@ from PySide6.QtGui import QShortcut, QKeySequence
 import datetime
 from src.ui.estilos import ESTILO_VENTANA
 from src.ui.widgets_personalizados import SpinBoxClimatot, crear_boton_quitar_centrado
-from src.core.db_utils import get_con
 from src.core.logger import logger
 from src.core.error_handler import handle_db_errors, validate_field, show_warning, show_info
 from src.services import movimientos_service, historial_service
-from src.repos import movimientos_repo
+from src.repos import movimientos_repo, articulos_repo
 from src.services.furgonetas_service import list_furgonetas
 from src.core.session_manager import session_manager
 
@@ -522,28 +521,7 @@ class VentanaMovimientos(QWidget):
             return
 
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("""
-                SELECT id, nombre, u_medida, ean, ref_proveedor
-                FROM articulos
-                WHERE activo=1 AND (
-                    ean LIKE ? OR
-                    ref_proveedor LIKE ? OR
-                    nombre LIKE ? OR
-                    palabras_clave LIKE ?
-                )
-                ORDER BY
-                    CASE
-                        WHEN ean = ? THEN 1
-                        WHEN ref_proveedor = ? THEN 2
-                        WHEN nombre LIKE ? THEN 3
-                        ELSE 4
-                    END
-                LIMIT 10
-            """, (f"%{texto}%", f"%{texto}%", f"%{texto}%", f"%{texto}%", texto, texto, f"{texto}%"))
-            rows = cur.fetchall()
-            con.close()
+            rows = articulos_repo.buscar_articulos_por_texto(texto, limit=10)
 
             if not rows:
                 self.lbl_sugerencia.setText("❌ No se encontraron artículos")
@@ -555,28 +533,28 @@ class VentanaMovimientos(QWidget):
             self.lbl_sugerencia.setText("")
 
             # Si se presionó Enter y hay coincidencia exacta por EAN/Ref, agregar automáticamente
-            if len(rows) == 1 and (rows[0][3] == texto or rows[0][4] == texto):
-                self.agregar_articulo(rows[0][0], rows[0][1], rows[0][2])
+            if len(rows) == 1 and (rows[0]['ean'] == texto or rows[0]['ref_proveedor'] == texto):
+                self.agregar_articulo(rows[0]['id'], rows[0]['nombre'], rows[0]['u_medida'])
                 self.txt_buscar.clear()
-                self.lbl_sugerencia.setText(f"✅ {rows[0][1]} agregado")
+                self.lbl_sugerencia.setText(f"✅ {rows[0]['nombre']} agregado")
                 self.lista_sugerencias.setVisible(False)
                 return
 
             # Mostrar múltiples sugerencias clickeables
             for row in rows:
-                texto_item = f"{row[1]}"
-                if row[3]:  # EAN
-                    texto_item += f" | EAN: {row[3]}"
-                if row[4]:  # Ref
-                    texto_item += f" | Ref: {row[4]}"
-                texto_item += f" | {row[2]}"
+                texto_item = f"{row['nombre']}"
+                if row['ean']:  # EAN
+                    texto_item += f" | EAN: {row['ean']}"
+                if row['ref_proveedor']:  # Ref
+                    texto_item += f" | Ref: {row['ref_proveedor']}"
+                texto_item += f" | {row['u_medida']}"
 
                 item = QListWidgetItem(texto_item)
                 # Guardar datos del artículo en el item
                 item.setData(Qt.UserRole, {
-                    'id': row[0],
-                    'nombre': row[1],
-                    'u_medida': row[2]
+                    'id': row['id'],
+                    'nombre': row['nombre'],
+                    'u_medida': row['u_medida']
                 })
                 self.lista_sugerencias.addItem(item)
 

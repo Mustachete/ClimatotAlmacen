@@ -11,9 +11,9 @@ import datetime
 from src.ui.estilos import ESTILO_VENTANA
 from src.ui.ventana_operativa_base import VentanaOperativaBase
 from src.ui.widgets_personalizados import SpinBoxClimatot, crear_boton_quitar_centrado
-from src.core.db_utils import get_con
 from src.core.logger import logger
 from src.services import movimientos_service, historial_service
+from src.repos import articulos_repo, albaranes_repo
 from src.core.session_manager import session_manager
 
 
@@ -264,15 +264,11 @@ class DialogoRecepcion(VentanaOperativaBase):
     def cargar_proveedores(self):
         """Carga los proveedores en el combo"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("SELECT id, nombre FROM proveedores ORDER BY nombre")
-            rows = cur.fetchall()
-            con.close()
+            proveedores = articulos_repo.get_proveedores()
 
             self.cmb_proveedor.addItem("(Sin proveedor)", None)
-            for row in rows:
-                self.cmb_proveedor.addItem(row[1], row[0])
+            for prov in proveedores:
+                self.cmb_proveedor.addItem(prov['nombre'], prov['id'])
         except Exception:
             pass
 
@@ -295,16 +291,8 @@ class DialogoRecepcion(VentanaOperativaBase):
         proveedor_id = self.cmb_proveedor.currentData()
 
         try:
-            con = get_con()
-            cur = con.cursor()
-
             # Verificar si el albarán ya existe (mismo proveedor + número + fecha)
-            cur.execute("""
-                SELECT albaran FROM albaranes
-                WHERE albaran=? AND proveedor_id=? AND fecha=?
-            """, (num_albaran, proveedor_id, fecha))
-            if cur.fetchone():
-                con.close()
+            if albaranes_repo.verificar_duplicado(num_albaran, proveedor_id, fecha):
                 return False, (
                     f"Ya existe un albarán con el mismo número '{num_albaran}'\n"
                     f"del mismo proveedor en la fecha {self.date_fecha.date().toString('dd/MM/yyyy')}.\n\n"
@@ -313,21 +301,14 @@ class DialogoRecepcion(VentanaOperativaBase):
                 )
 
             # Advertencia si existe el mismo número pero de otro proveedor o fecha diferente
-            cur.execute("SELECT proveedor_id, fecha FROM albaranes WHERE albaran=?", (num_albaran,))
-            alb_existente = cur.fetchone()
+            alb_existente = albaranes_repo.get_by_numero(num_albaran)
             if alb_existente:
                 # Aquí no podemos mostrar diálogo, solo advertir
                 # La clase base ya preguntará confirmación antes de guardar
                 pass
 
             # Registrar el albarán
-            cur.execute(
-                "INSERT INTO albaranes(albaran, proveedor_id, fecha) VALUES(?,?,?)",
-                (num_albaran, proveedor_id, fecha)
-            )
-
-            con.commit()
-            con.close()
+            albaranes_repo.crear_albaran(num_albaran, proveedor_id, fecha)
 
             # Preparar datos para el service
             articulos = [
@@ -448,43 +429,21 @@ class VentanaRecepcion(QWidget):
     def cargar_albaranes(self, filtro=""):
         """Carga los albaranes registrados"""
         try:
-            con = get_con()
-            cur = con.cursor()
+            albaranes = albaranes_repo.get_todos(filtro_texto=filtro if filtro else None, limit=500)
 
-            if filtro:
-                cur.execute("""
-                    SELECT a.albaran, p.nombre, a.fecha,
-                           (SELECT COUNT(DISTINCT articulo_id) FROM movimientos WHERE albaran=a.albaran) as num_arts
-                    FROM albaranes a
-                    LEFT JOIN proveedores p ON a.proveedor_id = p.id
-                    WHERE a.albaran LIKE ? OR p.nombre LIKE ?
-                    ORDER BY a.fecha DESC, a.albaran
-                """, (f"%{filtro}%", f"%{filtro}%"))
-            else:
-                cur.execute("""
-                    SELECT a.albaran, p.nombre, a.fecha,
-                           (SELECT COUNT(DISTINCT articulo_id) FROM movimientos WHERE albaran=a.albaran) as num_arts
-                    FROM albaranes a
-                    LEFT JOIN proveedores p ON a.proveedor_id = p.id
-                    ORDER BY a.fecha DESC, a.albaran
-                """)
+            self.tabla.setRowCount(len(albaranes))
 
-            rows = cur.fetchall()
-            con.close()
-
-            self.tabla.setRowCount(len(rows))
-
-            for i, row in enumerate(rows):
-                self.tabla.setItem(i, 0, QTableWidgetItem(row[0]))
-                self.tabla.setItem(i, 1, QTableWidgetItem(row[1] or "(Sin proveedor)"))
+            for i, alb in enumerate(albaranes):
+                self.tabla.setItem(i, 0, QTableWidgetItem(alb['albaran']))
+                self.tabla.setItem(i, 1, QTableWidgetItem(alb['proveedor_nombre'] or "(Sin proveedor)"))
                 # Convertir fecha a formato dd/MM/yyyy
                 try:
-                    fecha_obj = datetime.datetime.strptime(row[2], "%Y-%m-%d")
+                    fecha_obj = datetime.datetime.strptime(alb['fecha'], "%Y-%m-%d")
                     fecha_mostrar = fecha_obj.strftime("%d/%m/%Y")
                 except:
-                    fecha_mostrar = row[2]
+                    fecha_mostrar = alb['fecha']
                 self.tabla.setItem(i, 2, QTableWidgetItem(fecha_mostrar))
-                self.tabla.setItem(i, 3, QTableWidgetItem(f"{row[3]} artículo(s)"))
+                self.tabla.setItem(i, 3, QTableWidgetItem(f"{alb['num_articulos']} artículo(s)"))
 
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar albaranes:\n{e}")

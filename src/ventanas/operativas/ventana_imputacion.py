@@ -9,9 +9,9 @@ import datetime
 
 from src.ui.ventana_operativa_base import VentanaOperativaBase
 from src.ui.widgets_personalizados import SpinBoxClimatot
-from src.core.db_utils import get_con
 from src.core.logger import logger
-from src.services import movimientos_service, historial_service
+from src.services import movimientos_service, historial_service, almacenes_service
+from src.repos import movimientos_repo
 from src.core.session_manager import session_manager
 
 
@@ -139,22 +139,13 @@ class VentanaImputacion(VentanaOperativaBase):
     def cargar_operarios(self):
         """Carga los operarios activos"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("""
-                SELECT id, nombre, rol_operario
-                FROM operarios
-                WHERE activo=1
-                ORDER BY rol_operario DESC, nombre
-            """)
-            rows = cur.fetchall()
-            con.close()
+            operarios = movimientos_repo.get_operarios_activos()
 
             self.cmb_operario.addItem("(Seleccione operario)", None)
-            for row in rows:
-                emoji = "👷" if row[2] == "oficial" else "🔨"
-                texto = f"{emoji} {row[1]} ({row[2]})"
-                self.cmb_operario.addItem(texto, row[0])
+            for op in operarios:
+                emoji = "👷" if op['rol_operario'] == "oficial" else "🔨"
+                texto = f"{emoji} {op['nombre']} ({op['rol_operario']})"
+                self.cmb_operario.addItem(texto, op['id'])
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar operarios:\n{e}")
 
@@ -193,31 +184,19 @@ class VentanaImputacion(VentanaOperativaBase):
             return
 
         try:
-            con = get_con()
-            cur = con.cursor()
-            # Obtener stock actual en la furgoneta
-            cur.execute("""
-                SELECT a.id, a.nombre, a.u_medida, COALESCE(SUM(v.delta), 0) as stock
-                FROM articulos a
-                LEFT JOIN vw_stock v ON a.id = v.articulo_id AND v.almacen_id = ?
-                WHERE a.activo = 1
-                GROUP BY a.id, a.nombre, a.u_medida
-                HAVING stock > 0
-                ORDER BY a.nombre
-            """, (self.furgoneta_id,))
-            rows = cur.fetchall()
-            con.close()
+            # Obtener stock actual en la furgoneta usando el service
+            articulos = almacenes_service.obtener_stock_almacen(self.furgoneta_id)
 
             self.cmb_articulo.clear()
             self.cmb_articulo.addItem("(Seleccione artículo)", None)
 
-            for row in rows:
-                texto = f"{row[1]} ({row[2]}) - Stock: {row[3]:.2f}"
+            for art in articulos:
+                texto = f"{art['nombre']} ({art['u_medida']}) - Stock: {art['stock']:.2f}"
                 self.cmb_articulo.addItem(texto, {
-                    'id': row[0],
-                    'nombre': row[1],
-                    'u_medida': row[2],
-                    'stock': row[3]
+                    'id': art['id'],
+                    'nombre': art['nombre'],
+                    'u_medida': art['u_medida'],
+                    'stock': art['stock']
                 })
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar artículos:\n{e}")

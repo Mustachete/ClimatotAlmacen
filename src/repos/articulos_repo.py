@@ -358,6 +358,44 @@ def get_articulos_bajo_minimo() -> List[Dict[str, Any]]:
     return fetch_all(sql)
 
 
+def buscar_articulos_por_texto(texto: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Busca artículos por EAN, referencia, nombre o palabras clave.
+    Los resultados se ordenan por relevancia: coincidencias exactas primero.
+
+    Args:
+        texto: Texto de búsqueda (EAN, referencia, nombre, etc.)
+        limit: Número máximo de resultados a devolver
+
+    Returns:
+        Lista de artículos ordenados por relevancia
+    """
+    sql = """
+        SELECT id, nombre, u_medida, ean, ref_proveedor
+        FROM articulos
+        WHERE activo=1 AND (
+            ean LIKE ? OR
+            ref_proveedor LIKE ? OR
+            nombre LIKE ? OR
+            palabras_clave LIKE ?
+        )
+        ORDER BY
+            CASE
+                WHEN ean = ? THEN 1
+                WHEN ref_proveedor = ? THEN 2
+                WHEN nombre LIKE ? THEN 3
+                ELSE 4
+            END
+        LIMIT ?
+    """
+    params = (
+        f"%{texto}%", f"%{texto}%", f"%{texto}%", f"%{texto}%",
+        texto, texto, f"{texto}%",
+        limit
+    )
+    return fetch_all(sql, params)
+
+
 def get_estadisticas_articulos() -> Dict[str, Any]:
     """
     Obtiene estadísticas generales de artículos.
