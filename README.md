@@ -185,6 +185,7 @@ El sistema sigue el patrón de arquitectura en capas:
 
 ## 📖 Documentación Adicional
 
+- [GUIA_DESARROLLO.md](GUIA_DESARROLLO.md) - **Guía completa para desarrolladores** (convenciones, patrones, ejemplos)
 - [ESTADO_PROYECTO.md](ESTADO_PROYECTO.md) - Estado actual del proyecto, qué falta, próximos pasos
 - [docs/SISTEMA_AUTENTICACION.md](docs/SISTEMA_AUTENTICACION.md) - Detalles del sistema de autenticación
 - [docs/PLAN_REFACTORIZACION_COMPLETA.md](docs/PLAN_REFACTORIZACION_COMPLETA.md) - Plan de refactorización en curso
