@@ -3,15 +3,14 @@ from datetime import date
 from typing import Optional, Dict, Any, List
 
 from src.repos.furgonetas_repo import (
-    ensure_schema,
     list_furgonetas, get_furgoneta, create_furgoneta, update_furgoneta, delete_furgoneta
 )
 from src.repos import asignaciones_repo
 
 
 def boot() -> None:
-    """Inicializa/migra el esquema si falta."""
-    ensure_schema()
+    """Inicializa el servicio de furgonetas (no requiere migración en PostgreSQL)."""
+    pass
 
 
 def alta_furgoneta(matricula: str, marca: str = None, modelo: str = None, anio: int = None, notas: str = None, numero: int = None) -> int:
@@ -97,6 +96,35 @@ def listar_asignaciones_operario(
         Lista de asignaciones
     """
     return asignaciones_repo.get_asignaciones_operario(operario_id, fecha_desde, fecha_hasta)
+
+
+def obtener_asignaciones_filtradas(
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+    operario_id: Optional[int] = None,
+    furgoneta_id: Optional[int] = None,
+    turno: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Obtiene asignaciones con filtros múltiples.
+
+    Args:
+        fecha_desde: Fecha inicial (opcional)
+        fecha_hasta: Fecha final (opcional)
+        operario_id: Filtrar por operario (opcional)
+        furgoneta_id: Filtrar por furgoneta (opcional)
+        turno: Filtrar por turno: 'manana', 'tarde', 'completo' (opcional)
+
+    Returns:
+        Lista de asignaciones que cumplen los filtros
+    """
+    return asignaciones_repo.buscar_asignaciones_filtradas(
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        operario_id=operario_id,
+        furgoneta_id=furgoneta_id,
+        turno=turno
+    )
 
 
 # ========================================

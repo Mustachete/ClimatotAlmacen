@@ -20,9 +20,9 @@ def get_todos(filtro_texto: Optional[str] = None, limit: int = 1000) -> List[Dic
         sql = """
             SELECT id, nombre, tipo
             FROM almacenes
-            WHERE nombre LIKE ?
+            WHERE nombre LIKE %s
             ORDER BY nombre
-            LIMIT ?
+            LIMIT %s
         """
         return fetch_all(sql, (f"%{filtro_texto}%", limit))
     else:
@@ -30,20 +30,20 @@ def get_todos(filtro_texto: Optional[str] = None, limit: int = 1000) -> List[Dic
             SELECT id, nombre, tipo
             FROM almacenes
             ORDER BY nombre
-            LIMIT ?
+            LIMIT %s
         """
         return fetch_all(sql, (limit,))
 
 
 def get_by_id(almacen_id: int) -> Optional[Dict[str, Any]]:
     """Obtiene un almacén por su ID."""
-    sql = "SELECT id, nombre, tipo FROM almacenes WHERE id = ?"
+    sql = "SELECT id, nombre, tipo FROM almacenes WHERE id = %s"
     return fetch_one(sql, (almacen_id,))
 
 
 def get_by_nombre(nombre: str) -> Optional[Dict[str, Any]]:
     """Obtiene un almacén por su nombre exacto."""
-    sql = "SELECT id, nombre, tipo FROM almacenes WHERE nombre = ?"
+    sql = "SELECT id, nombre, tipo FROM almacenes WHERE nombre = %s"
     return fetch_one(sql, (nombre,))
 
 
@@ -60,7 +60,7 @@ def get_by_tipo(tipo: str) -> List[Dict[str, Any]]:
     sql = """
         SELECT id, nombre, tipo
         FROM almacenes
-        WHERE tipo = ?
+        WHERE tipo = %s
         ORDER BY nombre
     """
     return fetch_all(sql, (tipo,))
@@ -87,20 +87,20 @@ def crear_almacen(nombre: str, tipo: str = 'almacen') -> int:
     Returns:
         ID del almacén creado
     """
-    sql = "INSERT INTO almacenes(nombre, tipo) VALUES(?, ?)"
+    sql = "INSERT INTO almacenes(nombre, tipo) VALUES(%s, %s)"
     return execute_query(sql, (nombre, tipo))
 
 
 def actualizar_almacen(almacen_id: int, nombre: str, tipo: str) -> bool:
     """Actualiza un almacén existente."""
-    sql = "UPDATE almacenes SET nombre=?, tipo=? WHERE id=?"
+    sql = "UPDATE almacenes SET nombre=%s, tipo=%s WHERE id=%s"
     execute_query(sql, (nombre, tipo, almacen_id))
     return True
 
 
 def eliminar_almacen(almacen_id: int) -> bool:
     """Elimina un almacén (fallará si tiene movimientos asociados)."""
-    sql = "DELETE FROM almacenes WHERE id=?"
+    sql = "DELETE FROM almacenes WHERE id=%s"
     execute_query(sql, (almacen_id,))
     return True
 
@@ -110,7 +110,7 @@ def verificar_movimientos(almacen_id: int) -> bool:
     sql = """
         SELECT COUNT(*) as count
         FROM movimientos
-        WHERE origen_id = ? OR destino_id = ?
+        WHERE origen_id = %s OR destino_id = %s
     """
     result = fetch_one(sql, (almacen_id, almacen_id))
     return result['count'] > 0 if result else False
@@ -133,8 +133,8 @@ def get_stock_almacen(almacen_id: int) -> List[Dict[str, Any]]:
             a.u_medida,
             COALESCE(SUM(
                 CASE
-                    WHEN m.destino_id = ? THEN m.cantidad
-                    WHEN m.origen_id = ? THEN -m.cantidad
+                    WHEN m.destino_id = %s THEN m.cantidad
+                    WHEN m.origen_id = %s THEN -m.cantidad
                     ELSE 0
                 END
             ), 0) as stock
@@ -142,10 +142,16 @@ def get_stock_almacen(almacen_id: int) -> List[Dict[str, Any]]:
         LEFT JOIN movimientos m ON a.id = m.articulo_id
         WHERE a.activo = 1
         GROUP BY a.id, a.nombre, a.u_medida
-        HAVING stock > 0
+        HAVING COALESCE(SUM(
+            CASE
+                WHEN m.destino_id = %s THEN m.cantidad
+                WHEN m.origen_id = %s THEN -m.cantidad
+                ELSE 0
+            END
+        ), 0) > 0
         ORDER BY a.nombre
     """
-    return fetch_all(sql, (almacen_id, almacen_id))
+    return fetch_all(sql, (almacen_id, almacen_id, almacen_id, almacen_id))
 
 
 def get_estadisticas_almacen(almacen_id: int) -> Dict[str, Any]:
@@ -160,13 +166,13 @@ def get_estadisticas_almacen(almacen_id: int) -> Dict[str, Any]:
             COUNT(DISTINCT m.articulo_id) as articulos_diferentes,
             COALESCE(SUM(
                 CASE
-                    WHEN m.destino_id = ? THEN m.cantidad
-                    WHEN m.origen_id = ? THEN -m.cantidad
+                    WHEN m.destino_id = %s THEN m.cantidad
+                    WHEN m.origen_id = %s THEN -m.cantidad
                     ELSE 0
                 END
             ), 0) as cantidad_total
         FROM movimientos m
-        WHERE m.origen_id = ? OR m.destino_id = ?
+        WHERE m.origen_id = %s OR m.destino_id = %s
     """
     result = fetch_one(sql, (almacen_id, almacen_id, almacen_id, almacen_id))
     return result if result else {}

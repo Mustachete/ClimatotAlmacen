@@ -66,7 +66,7 @@ class DialogoNuevoInventario(QDialog):
         layout.addWidget(grupo)
         
         # Opciones de filtrado
-        grupo_filtros = QGroupBox("¿Qué artículos incluir?")
+        grupo_filtros = QGroupBox("¿Qué artículos incluir%s")
         filtros_layout = QVBoxLayout()
         
         self.radio_todos = QCheckBox("Todos los artículos activos")

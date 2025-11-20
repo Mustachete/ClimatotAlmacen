@@ -229,16 +229,58 @@ class VentanaUsuarios(VentanaMaestroBase):
         layout_principal.insertLayout(layout_principal.count() - 1, info_layout)
 
     def _crear_interfaz(self):
-        """Sobrescribe para añadir botón Refrescar"""
+        """Sobrescribe para añadir botones personalizados"""
         super()._crear_interfaz()
 
-        # Añadir botón Refrescar a la barra superior
+        # Añadir botones a la barra superior
         layout_principal = self.layout()
         top_layout = layout_principal.itemAt(2).layout()
+
+        btn_notificaciones = QPushButton("🔔 Config. Notificaciones")
+        btn_notificaciones.clicked.connect(self.configurar_notificaciones_usuario)
+        btn_notificaciones.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                font-weight: bold;
+                border-radius: 5px;
+                padding: 8px 12px;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+        """)
+        top_layout.addWidget(btn_notificaciones)
 
         btn_refrescar = QPushButton("🔄 Refrescar")
         btn_refrescar.clicked.connect(lambda: self.cargar_datos())
         top_layout.addWidget(btn_refrescar)
+
+    def configurar_notificaciones_usuario(self):
+        """Abre el diálogo de configuración de notificaciones para el usuario seleccionado"""
+        seleccion = self.tabla.currentRow()
+        if seleccion < 0:
+            QMessageBox.warning(
+                self,
+                "⚠️ Aviso",
+                "Selecciona un usuario de la lista para configurar sus notificaciones."
+            )
+            return
+
+        usuario = self.tabla.item(seleccion, 3).text()  # Columna oculta con usuario
+
+        try:
+            from src.ventanas.dialogo_config_notificaciones import DialogoConfigNotificaciones
+
+            dialogo = DialogoConfigNotificaciones(usuario, self)
+            dialogo.exec()
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "❌ Error",
+                f"Error al abrir configuración de notificaciones:\n{e}"
+            )
 
     def configurar_dimensiones(self):
         """Configura las dimensiones específicas para esta ventana"""

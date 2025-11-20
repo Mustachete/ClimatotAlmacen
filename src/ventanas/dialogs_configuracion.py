@@ -14,8 +14,9 @@ import shutil
 from datetime import datetime
 
 from src.ui.estilos import ESTILO_DIALOGO
-from src.core.db_utils import DB_PATH, get_con
+from src.core.db_utils import DB_PATH
 from src.core.logger import logger
+from src.repos import sistema_repo
 
 
 class DialogoGestionBD(QDialog):
@@ -80,13 +81,9 @@ class DialogoGestionBD(QDialog):
     def verificar_integridad(self):
         """Verifica la integridad de la base de datos"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("PRAGMA integrity_check")
-            resultado = cur.fetchone()
-            con.close()
+            resultado = sistema_repo.verificar_integridad_bd()
 
-            if resultado and resultado[0] == 'ok':
+            if resultado['ok']:
                 QMessageBox.information(
                     self,
                     "✅ Integridad OK",
@@ -96,7 +93,7 @@ class DialogoGestionBD(QDialog):
                 QMessageBox.warning(
                     self,
                     "⚠️ Problema detectado",
-                    f"Resultado: {resultado}"
+                    f"Resultado: {resultado['resultado']}"
                 )
         except Exception as e:
             logger.exception(f"Error al verificar integridad: {e}")
@@ -118,10 +115,7 @@ class DialogoGestionBD(QDialog):
             return
 
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("VACUUM")
-            con.close()
+            sistema_repo.optimizar_bd()
             logger.info("Base de datos optimizada con VACUUM")
             QMessageBox.information(
                 self,
@@ -207,6 +201,13 @@ class DialogoBackupRestauracion(QDialog):
         btn_backup_manual.clicked.connect(self.crear_backup_manual)
         backup_layout.addWidget(btn_backup_manual)
 
+        # Botón de configuración
+        btn_config_backup = QPushButton("⚙️ Configurar Backups...")
+        btn_config_backup.setMinimumHeight(40)
+        btn_config_backup.setStyleSheet("background-color: #f3f4f6;")
+        btn_config_backup.clicked.connect(self.abrir_config_backups)
+        backup_layout.addWidget(btn_config_backup)
+
         grupo_backup.setLayout(backup_layout)
         layout.addWidget(grupo_backup)
 
@@ -236,6 +237,13 @@ class DialogoBackupRestauracion(QDialog):
         btn_cerrar.clicked.connect(self.close)
         btn_cerrar.setDefault(True)
         layout.addWidget(btn_cerrar)
+
+    def abrir_config_backups(self):
+        """Abre el diálogo de configuración de backups"""
+        from src.ventanas.dialogo_config_backups import DialogoConfigBackups
+
+        dialogo = DialogoConfigBackups(self)
+        dialogo.exec()
 
     def crear_backup_manual(self):
         """Crea un backup manual"""

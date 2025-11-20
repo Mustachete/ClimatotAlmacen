@@ -228,15 +228,96 @@ class VentanaConsumos(QWidget):
         dialogo.close()
         self._buscar_ot()
     
+    def _exportar_tabla_a_csv(self, tabla: QTableWidget, nombre_archivo: str, titulo: str = ""):
+        """Función auxiliar para exportar cualquier QTableWidget a CSV"""
+        try:
+            import csv
+            from PySide6.QtWidgets import QFileDialog
+            from datetime import datetime
+
+            if tabla.rowCount() == 0:
+                QMessageBox.warning(
+                    self,
+                    "⚠️ Sin datos",
+                    "No hay datos para exportar.\n\nPrimero realice una consulta."
+                )
+                return
+
+            # Diálogo para guardar archivo
+            fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            nombre_sugerido = f"{nombre_archivo}_{fecha_str}.csv"
+
+            ruta, _ = QFileDialog.getSaveFileName(
+                self,
+                "Guardar como CSV",
+                nombre_sugerido,
+                "CSV Files (*.csv);;All Files (*)"
+            )
+
+            if not ruta:
+                return  # Usuario canceló
+
+            # Escribir CSV
+            with open(ruta, 'w', newline='', encoding='utf-8-sig') as csvfile:
+                writer = csv.writer(csvfile, delimiter=';')
+
+                # Título opcional
+                if titulo:
+                    writer.writerow([titulo])
+                    writer.writerow(['Fecha exportación:', datetime.now().strftime("%d/%m/%Y %H:%M")])
+                    writer.writerow([])  # Línea en blanco
+
+                # Encabezados
+                headers = []
+                for col in range(tabla.columnCount()):
+                    header_item = tabla.horizontalHeaderItem(col)
+                    headers.append(header_item.text() if header_item else f"Columna {col+1}")
+                writer.writerow(headers)
+
+                # Datos
+                for row in range(tabla.rowCount()):
+                    row_data = []
+                    for col in range(tabla.columnCount()):
+                        item = tabla.item(row, col)
+                        row_data.append(item.text() if item else "")
+                    writer.writerow(row_data)
+
+            QMessageBox.information(
+                self,
+                "✅ Exportación exitosa",
+                f"Datos exportados a:\n\n{ruta}\n\nTotal filas: {tabla.rowCount()}"
+            )
+
+        except Exception as e:
+            from src.core.logger import logger
+            logger.exception(f"Error al exportar tabla: {e}")
+            QMessageBox.critical(
+                self,
+                "❌ Error",
+                f"Error al exportar:\n{e}"
+            )
+
     def _exportar_ot(self):
-        """Exporta el detalle de OT a Excel"""
-        QMessageBox.information(self, "Próximamente", 
-            "La exportación a Excel estará disponible próximamente")
-    
+        """Exporta el detalle de OT a CSV"""
+        ot = self.ot_input.text().strip()
+        titulo = f"CONSUMOS DE OT: {ot}" if ot else "CONSUMOS DE OT"
+        self._exportar_tabla_a_csv(
+            self.tabla_ot,
+            f"consumos_ot_{ot}" if ot else "consumos_ot",
+            titulo
+        )
+
     def _imprimir_ot(self):
         """Imprime el detalle de OT"""
-        QMessageBox.information(self, "Próximamente", 
-            "La impresión estará disponible próximamente")
+        QMessageBox.information(
+            self,
+            "🖨️ Imprimir",
+            "Para imprimir:\n\n"
+            "1. Exporte a CSV usando el botón 'Exportar a Excel'\n"
+            "2. Abra el archivo con Excel o LibreOffice\n"
+            "3. Use la función de impresión de esa aplicación\n\n"
+            "Próximamente se añadirá impresión directa desde la aplicación."
+        )
     
     # ========================================
     # TAB 2: CONSUMOS POR OPERARIO
@@ -316,8 +397,7 @@ class VentanaConsumos(QWidget):
         # Botones de acción
         botones = QHBoxLayout()
         btn_exportar_op = QPushButton("📄 Exportar a Excel")
-        btn_exportar_op.clicked.connect(lambda: QMessageBox.information(
-            self, "Próximamente", "Exportación disponible próximamente"))
+        btn_exportar_op.clicked.connect(self._exportar_operario)
         botones.addStretch()
         botones.addWidget(btn_exportar_op)
         layout.addLayout(botones)
@@ -460,12 +540,11 @@ class VentanaConsumos(QWidget):
         self.tabla_furgoneta.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.tabla_furgoneta.setAlternatingRowColors(True)
         layout.addWidget(self.tabla_furgoneta)
-        
+
         # Botones
         botones = QHBoxLayout()
         btn_exportar = QPushButton("📄 Exportar a Excel")
-        btn_exportar.clicked.connect(lambda: QMessageBox.information(
-            self, "Próximamente", "Exportación disponible próximamente"))
+        btn_exportar.clicked.connect(self._exportar_furgoneta)
         botones.addStretch()
         botones.addWidget(btn_exportar)
         layout.addLayout(botones)
@@ -616,18 +695,17 @@ class VentanaConsumos(QWidget):
         h_layout.addLayout(v_right)
         
         layout.addLayout(h_layout)
-        
+
         # Botones
         botones = QHBoxLayout()
         btn_exportar = QPushButton("📄 Exportar a Excel")
-        btn_exportar.clicked.connect(lambda: QMessageBox.information(
-            self, "Próximamente", "Exportación disponible próximamente"))
+        btn_exportar.clicked.connect(self._exportar_periodo)
         botones.addStretch()
         botones.addWidget(btn_exportar)
         layout.addLayout(botones)
-        
+
         return widget
-    
+
     def _periodo_mes_actual(self):
         """Establece el período al mes actual"""
         inicio, fin = consumos_service.obtener_periodo_mes_actual()
@@ -762,12 +840,11 @@ class VentanaConsumos(QWidget):
         # Botones
         botones = QHBoxLayout()
         btn_exportar = QPushButton("📄 Exportar a Excel")
-        btn_exportar.clicked.connect(lambda: QMessageBox.information(
-            self, "Próximamente", "Exportación disponible próximamente"))
+        btn_exportar.clicked.connect(self._exportar_articulo)
         botones.addStretch()
         botones.addWidget(btn_exportar)
         layout.addLayout(botones)
-        
+
         # Variable para almacenar el ID del artículo seleccionado
         self.articulo_seleccionado_id = None
         
@@ -882,6 +959,51 @@ class VentanaConsumos(QWidget):
                     consumos_service.formatear_coste(row.get('coste_total', 0))
                 ))
                 self.tabla_articulo.setItem(r, 5, QTableWidgetItem(row.get('unidad', '')))
-            
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al consultar artículo:\n{e}")
+
+    # ========================================
+    # FUNCIONES DE EXPORTACIÓN
+    # ========================================
+
+    def _exportar_operario(self):
+        """Exporta el detalle de consumos por operario a CSV"""
+        operario = self.combo_operario.currentText()
+        titulo = f"CONSUMOS POR OPERARIO: {operario}" if operario and operario != "Seleccione un operario..." else "CONSUMOS POR OPERARIO"
+        self._exportar_tabla_a_csv(
+            self.tabla_operario_detalle,
+            f"consumos_operario_{operario.replace(' ', '_')}" if operario else "consumos_operario",
+            titulo
+        )
+
+    def _exportar_furgoneta(self):
+        """Exporta el detalle de consumos por furgoneta a CSV"""
+        furgoneta = self.combo_furgoneta.currentText()
+        titulo = f"CONSUMOS POR FURGONETA: {furgoneta}" if furgoneta and furgoneta != "Seleccione una furgoneta..." else "CONSUMOS POR FURGONETA"
+        self._exportar_tabla_a_csv(
+            self.tabla_furgoneta,
+            f"consumos_furgoneta_{furgoneta.replace(' ', '_')}" if furgoneta else "consumos_furgoneta",
+            titulo
+        )
+
+    def _exportar_periodo(self):
+        """Exporta el análisis de consumos por período a CSV"""
+        fecha_desde = self.periodo_fecha_desde.date().toString("yyyy-MM-dd")
+        fecha_hasta = self.periodo_fecha_hasta.date().toString("yyyy-MM-dd")
+        titulo = f"CONSUMOS POR PERÍODO: {fecha_desde} a {fecha_hasta}"
+        self._exportar_tabla_a_csv(
+            self.tabla_periodo_articulos,
+            f"consumos_periodo_{fecha_desde}_{fecha_hasta}",
+            titulo
+        )
+
+    def _exportar_articulo(self):
+        """Exporta el detalle de consumos por artículo a CSV"""
+        articulo = self.articulo_buscar.text().strip()
+        titulo = f"CONSUMOS POR ARTÍCULO: {articulo}" if articulo else "CONSUMOS POR ARTÍCULO"
+        self._exportar_tabla_a_csv(
+            self.tabla_articulo,
+            f"consumos_articulo_{articulo.replace(' ', '_')}" if articulo else "consumos_articulo",
+            titulo
+        )

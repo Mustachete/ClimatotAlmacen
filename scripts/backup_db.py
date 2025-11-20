@@ -23,37 +23,66 @@ ROOT_DIR = Path(__file__).parent.parent
 DB_PATH = ROOT_DIR / "db" / "almacen.db"
 BACKUP_DIR = ROOT_DIR / "db" / "backups"
 
-# Configuración
-MAX_BACKUPS = 20  # Número máximo de backups a mantener
+# Configuración (valores por defecto, se sobreescriben desde BD)
+MAX_BACKUPS = 20  # Número máximo de backups a mantener (por defecto)
+
+def obtener_config_backups():
+    """Obtiene la configuración de backups desde la BD"""
+    try:
+        from src.services.backup_config_service import obtener_configuracion
+        return obtener_configuracion()
+    except Exception as e:
+        logger.warning(f"No se pudo cargar configuración desde BD, usando valores por defecto: {e}")
+        # Retornar valores por defecto si falla
+        class ConfigDefault:
+            max_backups = 20
+            permitir_multiples_diarios = True
+            retencion_dias = None
+            ruta_backups = None
+        return ConfigDefault()
 
 # ========================================
 # FUNCIONES PRINCIPALES
 # ========================================
 
-def crear_backup(mostrar_log: bool = True) -> bool:
+def crear_backup(mostrar_log: bool = True, forzar: bool = False) -> bool:
     """
     Crea un backup de la base de datos
-    
+
     Args:
         mostrar_log: Si True, registra en logs
-    
+        forzar: Si True, ignora la restricción de múltiples backups diarios
+
     Returns:
         True si el backup se creó exitosamente, False en caso contrario
     """
     try:
+        # Obtener configuración
+        config = obtener_config_backups()
+
+        # Verificar si se permiten múltiples backups diarios
+        if not forzar and not config.permitir_multiples_diarios:
+            if hay_backup_hoy():
+                if mostrar_log:
+                    logger.info("BACKUP | Ya existe un backup del día de hoy, operación omitida")
+                return False
+
         # Verificar que existe la BD
         if not DB_PATH.exists():
             if mostrar_log:
                 logger.error(f"BACKUP | Base de datos no encontrada: {DB_PATH}")
             return False
-        
+
+        # Obtener directorio de backups desde config
+        backup_dir = Path(config.ruta_backups) if config.ruta_backups else BACKUP_DIR
+
         # Crear carpeta de backups si no existe
-        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        backup_dir.mkdir(parents=True, exist_ok=True)
         
         # Nombre del archivo de backup con fecha y hora
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_filename = f"almacen_{timestamp}.zip"
-        backup_path = BACKUP_DIR / backup_filename
+        backup_path = backup_dir / backup_filename
         
         # Calcular hash SHA256 de la BD original (para verificación)
         hash_original = calcular_hash(DB_PATH)
@@ -75,10 +104,10 @@ def crear_backup(mostrar_log: bool = True) -> bool:
         if mostrar_log:
             logger.info(f"BACKUP | Backup creado exitosamente: {backup_filename} ({tamanio_mb:.2f} MB)")
             logger.info(f"BACKUP | Hash SHA256: {hash_original}")
-        
+
         # Limpiar backups antiguos
-        limpiar_backups_antiguos(mostrar_log)
-        
+        limpiar_backups_antiguos(backup_dir, config, mostrar_log)
+
         return True
         
     except Exception as e:
@@ -86,33 +115,49 @@ def crear_backup(mostrar_log: bool = True) -> bool:
             logger.error(f"BACKUP | Error al crear backup: {type(e).__name__}: {str(e)}")
         return False
 
-def limpiar_backups_antiguos(mostrar_log: bool = True):
+def limpiar_backups_antiguos(backup_dir: Path, config, mostrar_log: bool = True):
     """
-    Elimina backups antiguos, manteniendo solo los últimos MAX_BACKUPS
-    
+    Elimina backups antiguos según la configuración
+
     Args:
+        backup_dir: Directorio de backups
+        config: Configuración de backups
         mostrar_log: Si True, registra en logs
     """
     try:
         # Obtener lista de backups ordenados por fecha (más recientes primero)
         backups = sorted(
-            BACKUP_DIR.glob("almacen_*.zip"),
+            backup_dir.glob("almacen_*.zip"),
             key=lambda p: p.stat().st_mtime,
             reverse=True
         )
-        
-        # Si hay más de MAX_BACKUPS, eliminar los antiguos
-        if len(backups) > MAX_BACKUPS:
-            backups_a_eliminar = backups[MAX_BACKUPS:]
-            
-            for backup in backups_a_eliminar:
-                backup.unlink()
-                if mostrar_log:
-                    logger.info(f"BACKUP | Backup antiguo eliminado: {backup.name}")
-            
+
+        backups_a_eliminar = []
+
+        # Criterio 1: Limitar por número máximo
+        if len(backups) > config.max_backups:
+            backups_a_eliminar.extend(backups[config.max_backups:])
+
+        # Criterio 2: Eliminar backups más antiguos que retencion_dias
+        if config.retencion_dias is not None:
+            from datetime import datetime, timedelta
+            fecha_limite = datetime.now() - timedelta(days=config.retencion_dias)
+
+            for backup in backups:
+                if backup not in backups_a_eliminar:
+                    fecha_backup = datetime.fromtimestamp(backup.stat().st_mtime)
+                    if fecha_backup < fecha_limite:
+                        backups_a_eliminar.append(backup)
+
+        # Eliminar backups
+        for backup in set(backups_a_eliminar):  # Usar set para evitar duplicados
+            backup.unlink()
             if mostrar_log:
-                logger.info(f"BACKUP | Se eliminaron {len(backups_a_eliminar)} backup(s) antiguo(s)")
-        
+                logger.info(f"BACKUP | Backup antiguo eliminado: {backup.name}")
+
+        if backups_a_eliminar and mostrar_log:
+            logger.info(f"BACKUP | Se eliminaron {len(set(backups_a_eliminar))} backup(s) antiguo(s)")
+
     except Exception as e:
         if mostrar_log:
             logger.error(f"BACKUP | Error al limpiar backups antiguos: {str(e)}")
@@ -165,24 +210,31 @@ def calcular_hash(file_path: Path) -> str:
             sha256_hash.update(byte_block)
     return sha256_hash.hexdigest()
 
-def hay_backup_hoy() -> bool:
+def hay_backup_hoy(backup_dir: Path = None) -> bool:
     """
     Verifica si ya existe un backup del día de hoy
-    
+
+    Args:
+        backup_dir: Directorio de backups (opcional, usa el por defecto si no se especifica)
+
     Returns:
         True si existe backup de hoy, False en caso contrario
     """
     try:
-        if not BACKUP_DIR.exists():
+        if backup_dir is None:
+            config = obtener_config_backups()
+            backup_dir = Path(config.ruta_backups) if config.ruta_backups else BACKUP_DIR
+
+        if not backup_dir.exists():
             return False
-        
+
         fecha_hoy = datetime.now().strftime("%Y%m%d")
-        
+
         # Buscar archivos que empiecen con la fecha de hoy
-        backups_hoy = list(BACKUP_DIR.glob(f"almacen_{fecha_hoy}_*.zip"))
-        
+        backups_hoy = list(backup_dir.glob(f"almacen_{fecha_hoy}_*.zip"))
+
         return len(backups_hoy) > 0
-        
+
     except Exception as e:
         logger.error(f"BACKUP | Error al verificar backup de hoy: {str(e)}")
         return False
@@ -219,26 +271,33 @@ def restaurar_backup(backup_path: Path) -> bool:
         logger.error(f"BACKUP | Error al restaurar backup: {str(e)}")
         return False
 
-def listar_backups() -> list:
+def listar_backups(backup_dir: Path = None) -> list:
     """
     Lista todos los backups disponibles
-    
+
+    Args:
+        backup_dir: Directorio de backups (opcional, usa el por defecto si no se especifica)
+
     Returns:
         Lista de tuplas (nombre_archivo, fecha_modificacion, tamaño_mb)
     """
     try:
-        if not BACKUP_DIR.exists():
+        if backup_dir is None:
+            config = obtener_config_backups()
+            backup_dir = Path(config.ruta_backups) if config.ruta_backups else BACKUP_DIR
+
+        if not backup_dir.exists():
             return []
-        
+
         backups = []
-        for backup_path in sorted(BACKUP_DIR.glob("almacen_*.zip"), key=lambda p: p.stat().st_mtime, reverse=True):
+        for backup_path in sorted(backup_dir.glob("almacen_*.zip"), key=lambda p: p.stat().st_mtime, reverse=True):
             stat = backup_path.stat()
             fecha = datetime.fromtimestamp(stat.st_mtime)
             tamanio_mb = stat.st_size / (1024 * 1024)
             backups.append((backup_path.name, fecha, tamanio_mb))
-        
+
         return backups
-        
+
     except Exception as e:
         logger.error(f"BACKUP | Error al listar backups: {str(e)}")
         return []

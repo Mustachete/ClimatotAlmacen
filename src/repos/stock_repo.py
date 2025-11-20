@@ -46,31 +46,31 @@ def get_stock_completo(
 
     # Filtro de búsqueda
     if filtro_texto:
-        query += " AND (a.nombre LIKE ? OR a.ean LIKE ? OR a.ref_proveedor LIKE ?)"
+        query += " AND (a.nombre LIKE %s OR a.ean LIKE %s OR a.ref_proveedor LIKE %s)"
         params.extend([f"%{filtro_texto}%"] * 3)
 
     # Filtro de familia
     if familia:
-        query += " AND f.nombre = ?"
+        query += " AND f.nombre = %s"
         params.append(familia)
 
     # Filtro de almacén
     if almacen:
-        query += " AND alm.nombre = ?"
+        query += " AND alm.nombre = %s"
         params.append(almacen)
 
     query += " GROUP BY a.id, a.nombre, a.ean, f.nombre, alm.nombre, a.min_alerta, a.u_medida"
 
     # Filtro de solo con stock
     if solo_con_stock:
-        query += " HAVING stock > 0"
+        query += " HAVING COALESCE(SUM(v.delta), 0) > 0"
 
     # Filtro de solo alertas
     if solo_alertas:
         if solo_con_stock:
-            query += " AND stock < a.min_alerta"
+            query += " AND COALESCE(SUM(v.delta), 0) < a.min_alerta"
         else:
-            query += " HAVING stock < a.min_alerta"
+            query += " HAVING COALESCE(SUM(v.delta), 0) < a.min_alerta"
 
     query += " ORDER BY a.nombre, alm.nombre"
 
@@ -93,9 +93,9 @@ def get_stock_articulo_por_almacen(articulo_id: int) -> List[Dict[str, Any]]:
             alm.nombre as almacen,
             COALESCE(SUM(v.delta), 0) as stock
         FROM almacenes alm
-        LEFT JOIN vw_stock v ON alm.id = v.almacen_id AND v.articulo_id = ?
+        LEFT JOIN vw_stock v ON alm.id = v.almacen_id AND v.articulo_id = %s
         GROUP BY alm.id, alm.nombre
-        HAVING stock > 0
+        HAVING COALESCE(SUM(v.delta), 0) > 0
         ORDER BY alm.nombre
     """
     return fetch_all(query, (articulo_id,))
@@ -114,7 +114,7 @@ def get_stock_total_articulo(articulo_id: int) -> float:
     query = """
         SELECT COALESCE(SUM(delta), 0) as stock_total
         FROM vw_stock
-        WHERE articulo_id = ?
+        WHERE articulo_id = %s
     """
     result = fetch_all(query, (articulo_id,))
     return result[0]['stock_total'] if result else 0.0

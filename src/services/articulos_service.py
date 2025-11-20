@@ -2,7 +2,7 @@
 Servicio de Artículos - Lógica de negocio para gestión de artículos del almacén
 """
 from typing import List, Dict, Any, Optional, Tuple
-import sqlite3
+import psycopg2
 from src.repos import articulos_repo
 from src.core.logger import logger, log_operacion, log_validacion, log_error_bd
 
@@ -259,7 +259,7 @@ def crear_articulo(
 
         return True, f"Artículo '{nombre}' creado correctamente", articulo_id
 
-    except sqlite3.IntegrityError as e:
+    except psycopg2.IntegrityError as e:
         error_msg = str(e).lower()
         if "ean" in error_msg:
             mensaje = f"Ya existe un artículo con el EAN '{ean}'"
@@ -368,7 +368,7 @@ def actualizar_articulo(
 
         return True, f"Artículo '{nombre}' actualizado correctamente"
 
-    except sqlite3.IntegrityError as e:
+    except psycopg2.IntegrityError as e:
         error_msg = str(e).lower()
         if "ean" in error_msg:
             mensaje = f"Ya existe otro artículo con el EAN '{ean}'"
@@ -425,7 +425,7 @@ def eliminar_articulo(
 
         return True, f"Artículo '{nombre}' eliminado correctamente"
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         # Por si acaso la verificación previa no funcionó
         return False, (
             f"El artículo tiene movimientos asociados.\n\n"

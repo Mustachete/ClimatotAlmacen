@@ -155,6 +155,25 @@ class VentanaLogin(QDialog):
         session_manager.login(user_data['usuario'], user_data['rol'], user_data.get('id'))
         self.usuario_autenticado = user_data
 
+        # Crear backup automático al inicio si está configurado
+        try:
+            from src.services.backup_config_service import obtener_configuracion
+            config = obtener_configuracion()
+
+            if config.backup_auto_inicio:
+                # Importar y ejecutar backup en segundo plano
+                import sys
+                from pathlib import Path
+                ROOT_DIR = Path(__file__).parent.parent.parent
+                sys.path.insert(0, str(ROOT_DIR))
+
+                from scripts.backup_db import crear_backup
+                crear_backup(mostrar_log=True, forzar=False)
+        except Exception as e:
+            # No mostrar error al usuario, solo registrar en log
+            from src.core.logger import logger
+            logger.warning(f"No se pudo crear backup automático al inicio: {e}")
+
         QMessageBox.information(
             self,
             "Bienvenido",

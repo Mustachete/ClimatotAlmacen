@@ -33,7 +33,7 @@ def get_consumos_por_ot(ot: str) -> List[Dict[str, Any]]:
         INNER JOIN articulos a ON m.articulo_id = a.id
         LEFT JOIN operarios o ON m.operario_id = o.id
         WHERE m.tipo = 'IMPUTACION'
-          AND m.ot = ?
+          AND m.ot = %s
         ORDER BY m.fecha DESC, a.nombre
     """
     return fetch_all(sql, (ot,))
@@ -42,12 +42,12 @@ def get_consumos_por_ot(ot: str) -> List[Dict[str, Any]]:
 def get_resumen_ot(ot: str) -> Optional[Dict[str, Any]]:
     """
     Obtiene el resumen total de una OT.
-    
+
     Returns:
         Dict con: total_articulos, total_imputaciones, coste_total, fecha_primera, fecha_ultima
     """
     sql = """
-        SELECT 
+        SELECT
             COUNT(DISTINCT m.articulo_id) AS total_articulos,
             COUNT(*) AS total_imputaciones,
             SUM(m.cantidad * COALESCE(m.coste_unit, a.coste, 0)) AS coste_total,
@@ -56,7 +56,7 @@ def get_resumen_ot(ot: str) -> Optional[Dict[str, Any]]:
         FROM movimientos m
         INNER JOIN articulos a ON m.articulo_id = a.id
         WHERE m.tipo = 'IMPUTACION'
-          AND m.ot = ?
+          AND m.ot = %s
     """
     return fetch_one(sql, (ot,))
 
@@ -81,7 +81,7 @@ def get_ots_recientes(limit: int = 50) -> List[Dict[str, Any]]:
           AND m.ot != ''
         GROUP BY m.ot
         ORDER BY MAX(m.fecha) DESC
-        LIMIT ?
+        LIMIT %s
     """
     return fetch_all(sql, (limit,))
 
@@ -93,24 +93,24 @@ def get_ots_recientes(limit: int = 50) -> List[Dict[str, Any]]:
 def get_consumos_por_operario(operario_id: int, fecha_desde: str = None, fecha_hasta: str = None) -> List[Dict[str, Any]]:
     """
     Obtiene el detalle de consumos de un operario en un período.
-    
+
     Args:
         operario_id: ID del operario
         fecha_desde: Fecha inicio (formato ISO: yyyy-mm-dd)
         fecha_hasta: Fecha fin (formato ISO: yyyy-mm-dd)
-        
+
     Returns:
         Lista con detalle de imputaciones
     """
-    condiciones = ["m.tipo = 'IMPUTACION'", "m.operario_id = ?"]
+    condiciones = ["m.tipo = 'IMPUTACION'", "m.operario_id = %s"]
     params = [operario_id]
-    
+
     if fecha_desde:
-        condiciones.append("m.fecha >= ?")
+        condiciones.append("m.fecha >= %s")
         params.append(fecha_desde)
-    
+
     if fecha_hasta:
-        condiciones.append("m.fecha <= ?")
+        condiciones.append("m.fecha <= %s")
         params.append(fecha_hasta)
     
     where_clause = " AND ".join(condiciones)
@@ -135,19 +135,19 @@ def get_consumos_por_operario(operario_id: int, fecha_desde: str = None, fecha_h
 def get_resumen_operario(operario_id: int, fecha_desde: str = None, fecha_hasta: str = None) -> Optional[Dict[str, Any]]:
     """
     Obtiene el resumen de actividad de un operario.
-    
+
     Returns:
         Dict con: total_imputaciones, total_ots, coste_total, operario_nombre
     """
-    condiciones = ["m.tipo = 'IMPUTACION'", "m.operario_id = ?"]
+    condiciones = ["m.tipo = 'IMPUTACION'", "m.operario_id = %s"]
     params = [operario_id]
-    
+
     if fecha_desde:
-        condiciones.append("m.fecha >= ?")
+        condiciones.append("m.fecha >= %s")
         params.append(fecha_desde)
-    
+
     if fecha_hasta:
-        condiciones.append("m.fecha <= ?")
+        condiciones.append("m.fecha <= %s")
         params.append(fecha_hasta)
     
     where_clause = " AND ".join(condiciones)
@@ -170,26 +170,26 @@ def get_resumen_operario(operario_id: int, fecha_desde: str = None, fecha_hasta:
 def get_top_articulos_operario(operario_id: int, fecha_desde: str = None, fecha_hasta: str = None, limit: int = 10) -> List[Dict[str, Any]]:
     """
     Obtiene los artículos más usados por un operario.
-    
+
     Returns:
         Lista con: articulo, cantidad_total, veces_usado, coste_total
     """
-    condiciones = ["m.tipo = 'IMPUTACION'", "m.operario_id = ?"]
+    condiciones = ["m.tipo = 'IMPUTACION'", "m.operario_id = %s"]
     params = [operario_id]
-    
+
     if fecha_desde:
-        condiciones.append("m.fecha >= ?")
+        condiciones.append("m.fecha >= %s")
         params.append(fecha_desde)
-    
+
     if fecha_hasta:
-        condiciones.append("m.fecha <= ?")
+        condiciones.append("m.fecha <= %s")
         params.append(fecha_hasta)
-    
+
     where_clause = " AND ".join(condiciones)
     params.append(limit)
-    
+
     sql = f"""
-        SELECT 
+        SELECT
             a.nombre AS articulo,
             a.u_medida AS unidad,
             SUM(m.cantidad) AS cantidad_total,
@@ -200,7 +200,7 @@ def get_top_articulos_operario(operario_id: int, fecha_desde: str = None, fecha_
         WHERE {where_clause}
         GROUP BY a.id, a.nombre, a.u_medida
         ORDER BY cantidad_total DESC
-        LIMIT ?
+        LIMIT %s
     """
     return fetch_all(sql, tuple(params))
 
@@ -212,24 +212,24 @@ def get_top_articulos_operario(operario_id: int, fecha_desde: str = None, fecha_
 def get_consumos_por_furgoneta(furgoneta_id: int, fecha_desde: str = None, fecha_hasta: str = None) -> List[Dict[str, Any]]:
     """
     Obtiene consumos realizados desde una furgoneta específica.
-    
+
     Args:
         furgoneta_id: ID de la furgoneta (almacén tipo furgoneta)
         fecha_desde: Fecha inicio
         fecha_hasta: Fecha fin
-        
+
     Returns:
         Lista con detalle de imputaciones desde esa furgoneta
     """
-    condiciones = ["m.tipo = 'IMPUTACION'", "m.origen_id = ?"]
+    condiciones = ["m.tipo = 'IMPUTACION'", "m.origen_id = %s"]
     params = [furgoneta_id]
-    
+
     if fecha_desde:
-        condiciones.append("m.fecha >= ?")
+        condiciones.append("m.fecha >= %s")
         params.append(fecha_desde)
-    
+
     if fecha_hasta:
-        condiciones.append("m.fecha <= ?")
+        condiciones.append("m.fecha <= %s")
         params.append(fecha_hasta)
     
     where_clause = " AND ".join(condiciones)
@@ -255,19 +255,19 @@ def get_consumos_por_furgoneta(furgoneta_id: int, fecha_desde: str = None, fecha
 def get_resumen_furgoneta(furgoneta_id: int, fecha_desde: str = None, fecha_hasta: str = None) -> Optional[Dict[str, Any]]:
     """
     Obtiene resumen de consumos de una furgoneta.
-    
+
     Returns:
         Dict con: furgoneta_nombre, total_imputaciones, coste_total
     """
-    condiciones = ["m.tipo = 'IMPUTACION'", "m.origen_id = ?"]
+    condiciones = ["m.tipo = 'IMPUTACION'", "m.origen_id = %s"]
     params = [furgoneta_id]
-    
+
     if fecha_desde:
-        condiciones.append("m.fecha >= ?")
+        condiciones.append("m.fecha >= %s")
         params.append(fecha_desde)
-    
+
     if fecha_hasta:
-        condiciones.append("m.fecha <= ?")
+        condiciones.append("m.fecha <= %s")
         params.append(fecha_hasta)
     
     where_clause = " AND ".join(condiciones)
@@ -307,7 +307,7 @@ def get_resumen_periodo(fecha_desde: str, fecha_hasta: str) -> Dict[str, Any]:
             COUNT(*) AS total_movimientos
         FROM movimientos m
         INNER JOIN articulos a ON m.articulo_id = a.id
-        WHERE m.fecha BETWEEN ? AND ?
+        WHERE m.fecha BETWEEN %s AND %s
     """
     result = fetch_one(sql, (fecha_desde, fecha_hasta))
     return result if result else {}
@@ -330,10 +330,10 @@ def get_articulos_mas_consumidos_periodo(fecha_desde: str, fecha_hasta: str, lim
         FROM movimientos m
         INNER JOIN articulos a ON m.articulo_id = a.id
         WHERE m.tipo = 'IMPUTACION'
-          AND m.fecha BETWEEN ? AND ?
+          AND m.fecha BETWEEN %s AND %s
         GROUP BY a.id, a.nombre, a.u_medida
         ORDER BY cantidad_total DESC
-        LIMIT ?
+        LIMIT %s
     """
     return fetch_all(sql, (fecha_desde, fecha_hasta, limit))
 
@@ -354,11 +354,11 @@ def get_operarios_mas_activos_periodo(fecha_desde: str, fecha_hasta: str, limit:
         INNER JOIN articulos a ON m.articulo_id = a.id
         LEFT JOIN operarios o ON m.operario_id = o.id
         WHERE m.tipo = 'IMPUTACION'
-          AND m.fecha BETWEEN ? AND ?
+          AND m.fecha BETWEEN %s AND %s
           AND o.nombre IS NOT NULL
         GROUP BY o.id, o.nombre
         ORDER BY total_imputaciones DESC
-        LIMIT ?
+        LIMIT %s
     """
     return fetch_all(sql, (fecha_desde, fecha_hasta, limit))
 
@@ -370,19 +370,19 @@ def get_operarios_mas_activos_periodo(fecha_desde: str, fecha_hasta: str, limit:
 def get_consumos_por_articulo(articulo_id: int, fecha_desde: str = None, fecha_hasta: str = None) -> List[Dict[str, Any]]:
     """
     Obtiene el histórico de consumos de un artículo específico.
-    
+
     Returns:
         Lista con: fecha, ot, operario, cantidad, coste_total
     """
-    condiciones = ["m.tipo = 'IMPUTACION'", "m.articulo_id = ?"]
+    condiciones = ["m.tipo = 'IMPUTACION'", "m.articulo_id = %s"]
     params = [articulo_id]
-    
+
     if fecha_desde:
-        condiciones.append("m.fecha >= ?")
+        condiciones.append("m.fecha >= %s")
         params.append(fecha_desde)
-    
+
     if fecha_hasta:
-        condiciones.append("m.fecha <= ?")
+        condiciones.append("m.fecha <= %s")
         params.append(fecha_hasta)
     
     where_clause = " AND ".join(condiciones)
@@ -407,19 +407,19 @@ def get_consumos_por_articulo(articulo_id: int, fecha_desde: str = None, fecha_h
 def get_resumen_articulo(articulo_id: int, fecha_desde: str = None, fecha_hasta: str = None) -> Optional[Dict[str, Any]]:
     """
     Obtiene el resumen de consumos de un artículo.
-    
+
     Returns:
         Dict con: articulo_nombre, cantidad_total, veces_usado, coste_total
     """
-    condiciones = ["m.tipo = 'IMPUTACION'", "m.articulo_id = ?"]
+    condiciones = ["m.tipo = 'IMPUTACION'", "m.articulo_id = %s"]
     params = [articulo_id]
-    
+
     if fecha_desde:
-        condiciones.append("m.fecha >= ?")
+        condiciones.append("m.fecha >= %s")
         params.append(fecha_desde)
-    
+
     if fecha_hasta:
-        condiciones.append("m.fecha <= ?")
+        condiciones.append("m.fecha <= %s")
         params.append(fecha_hasta)
     
     where_clause = " AND ".join(condiciones)
@@ -500,7 +500,7 @@ def buscar_articulo_por_nombre(nombre: str) -> List[Dict[str, Any]]:
         SELECT id, nombre, ean, ref_proveedor, u_medida
         FROM articulos
         WHERE activo = 1
-          AND (nombre LIKE ? OR palabras_clave LIKE ? OR ean LIKE ? OR ref_proveedor LIKE ?)
+          AND (nombre LIKE %s OR palabras_clave LIKE %s OR ean LIKE %s OR ref_proveedor LIKE %s)
         ORDER BY nombre
         LIMIT 50
     """

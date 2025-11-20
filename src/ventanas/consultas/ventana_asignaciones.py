@@ -270,12 +270,12 @@ class VentanaAsignaciones(QWidget):
             total = len(resultados)
             if total > 0:
                 # Contar operarios únicos
-                operarios_unicos = len(set(r[5] for r in resultados))
+                operarios_unicos = len(set(r['operario_id'] for r in resultados))
 
                 # Contar por turno
                 turnos_count = {}
                 for r in resultados:
-                    turno = r[1]
+                    turno = r['turno']
                     turnos_count[turno] = turnos_count.get(turno, 0) + 1
 
                 stats = f"📊 Total: {total} asignaciones | 👷 {operarios_unicos} operarios únicos"

@@ -31,15 +31,15 @@ def get_todos(
     params = []
 
     if filtro_texto:
-        condiciones.append("nombre LIKE ?")
+        condiciones.append("nombre LIKE %s")
         params.append(f"%{filtro_texto}%")
 
     if solo_rol:
-        condiciones.append("rol_operario = ?")
+        condiciones.append("rol_operario = %s")
         params.append(solo_rol)
 
     if solo_activos is not None:
-        condiciones.append("activo = ?")
+        condiciones.append("activo = %s")
         params.append(1 if solo_activos else 0)
 
     where_clause = " AND ".join(condiciones) if condiciones else "1=1"
@@ -49,7 +49,7 @@ def get_todos(
         FROM operarios
         WHERE {where_clause}
         ORDER BY rol_operario DESC, nombre
-        LIMIT ?
+        LIMIT %s
     """
     params.append(limit)
 
@@ -69,7 +69,7 @@ def get_by_id(operario_id: int) -> Optional[Dict[str, Any]]:
     sql = """
         SELECT id, nombre, rol_operario, activo
         FROM operarios
-        WHERE id = ?
+        WHERE id = %s
     """
     return fetch_one(sql, (operario_id,))
 
@@ -87,7 +87,7 @@ def get_by_nombre(nombre: str) -> Optional[Dict[str, Any]]:
     sql = """
         SELECT id, nombre, rol_operario, activo
         FROM operarios
-        WHERE nombre = ?
+        WHERE nombre = %s
     """
     return fetch_one(sql, (nombre,))
 
@@ -110,7 +110,7 @@ def crear_operario(
     """
     sql = """
         INSERT INTO operarios(nombre, rol_operario, activo)
-        VALUES(?, ?, ?)
+        VALUES(%s, %s, %s)
     """
     return execute_query(sql, (nombre, rol_operario, 1 if activo else 0))
 
@@ -135,8 +135,8 @@ def actualizar_operario(
     """
     sql = """
         UPDATE operarios
-        SET nombre=?, rol_operario=?, activo=?
-        WHERE id=?
+        SET nombre=%s, rol_operario=%s, activo=%s
+        WHERE id=%s
     """
     execute_query(sql, (nombre, rol_operario, 1 if activo else 0, operario_id))
     return True
@@ -157,7 +157,7 @@ def eliminar_operario(operario_id: int) -> bool:
     Raises:
         IntegrityError: Si el operario tiene movimientos/asignaciones
     """
-    sql = "DELETE FROM operarios WHERE id=?"
+    sql = "DELETE FROM operarios WHERE id=%s"
     execute_query(sql, (operario_id,))
     return True
 
@@ -173,7 +173,7 @@ def activar_desactivar_operario(operario_id: int, activo: bool) -> bool:
     Returns:
         True si se actualizó correctamente
     """
-    sql = "UPDATE operarios SET activo=? WHERE id=?"
+    sql = "UPDATE operarios SET activo=%s WHERE id=%s"
     execute_query(sql, (1 if activo else 0, operario_id))
     return True
 
@@ -192,7 +192,7 @@ def verificar_movimientos(operario_id: int) -> bool:
     Returns:
         True si tiene movimientos, False si no tiene
     """
-    sql = "SELECT COUNT(*) as count FROM movimientos WHERE operario_id = ?"
+    sql = "SELECT COUNT(*) as count FROM movimientos WHERE operario_id = %s"
     result = fetch_one(sql, (operario_id,))
     return result['count'] > 0 if result else False
 
@@ -213,15 +213,15 @@ def get_movimientos_operario(
     Returns:
         Lista de movimientos del operario
     """
-    condiciones = ["operario_id = ?"]
+    condiciones = ["operario_id = %s"]
     params = [operario_id]
 
     if fecha_desde:
-        condiciones.append("fecha >= ?")
+        condiciones.append("fecha >= %s")
         params.append(fecha_desde)
 
     if fecha_hasta:
-        condiciones.append("fecha <= ?")
+        condiciones.append("fecha <= %s")
         params.append(fecha_hasta)
 
     where_clause = " AND ".join(condiciones)
@@ -311,7 +311,7 @@ def get_estadisticas_operario(operario_id: int) -> Dict[str, Any]:
             MIN(fecha) as primer_movimiento,
             MAX(fecha) as ultimo_movimiento
         FROM movimientos
-        WHERE operario_id = ?
+        WHERE operario_id = %s
     """
     result = fetch_one(sql, (operario_id,))
     return result if result else {}

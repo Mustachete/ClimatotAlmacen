@@ -6,6 +6,7 @@ from . import articulos_service
 from . import familias_service
 from . import inventarios_service
 from . import movimientos_service
+from . import notificaciones_service
 from . import operarios_service
 from . import proveedores_service
 from . import stock_service
@@ -18,6 +19,7 @@ __all__ = [
     'familias_service',
     'inventarios_service',
     'movimientos_service',
+    'notificaciones_service',
     'operarios_service',
     'proveedores_service',
     'stock_service',

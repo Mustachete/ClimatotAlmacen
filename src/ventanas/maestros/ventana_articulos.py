@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidgetItem, QLineEdit, QLabel, QMessageBox, QDialog,
     QFormLayout, QHeaderView, QComboBox, QCheckBox, QTextEdit,
-    QDoubleSpinBox, QScrollArea, QGroupBox
+    QDoubleSpinBox, QScrollArea, QGroupBox, QWidget
 )
 from PySide6.QtCore import Qt
 from src.ui.estilos import ESTILO_DIALOGO

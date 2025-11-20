@@ -45,8 +45,8 @@ class VentanaDevolucion(VentanaOperativaBase):
         ayuda_atajos.setAlignment(Qt.AlignCenter)
         self.layout().addWidget(ayuda_atajos)
 
-        # Focus inicial
-        self.cmb_articulo.setFocus()
+        # Variable para almacenar artículo seleccionado
+        self.articulo_actual = None
 
     def configurar_dimensiones(self):
         """Personaliza las dimensiones para la ventana de devolución"""
@@ -113,16 +113,21 @@ class VentanaDevolucion(VentanaOperativaBase):
         header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
 
     def _crear_selector_articulos(self, layout):
-        """Sobrescribe el selector para usar ComboBox en lugar de buscador"""
+        """Sobrescribe el selector para usar BuscadorArticulos"""
         select_layout = QHBoxLayout()
 
         lbl_art = QLabel("Artículo:")
-        self.cmb_articulo = QComboBox()
-        self.cmb_articulo.setMinimumWidth(350)
-        self.cargar_articulos()
 
-        from PySide6.QtWidgets import QLabel as QLabelQty
-        lbl_cant = QLabelQty("Cantidad:")
+        # Usar BuscadorArticulos en lugar de QComboBox
+        from src.dialogs.buscador_articulos import BuscadorArticulos
+        self.buscador = BuscadorArticulos(
+            self,
+            mostrar_boton_lupa=True,
+            placeholder="Buscar por EAN, referencia o nombre..."
+        )
+        self.buscador.articuloSeleccionado.connect(self.on_articulo_seleccionado)
+
+        lbl_cant = QLabel("Cantidad:")
 
         from src.ui.widgets_personalizados import SpinBoxClimatot
         self.spin_cantidad = SpinBoxClimatot()
@@ -134,10 +139,11 @@ class VentanaDevolucion(VentanaOperativaBase):
         from PySide6.QtWidgets import QPushButton
         self.btn_agregar = QPushButton("➕ Agregar")
         self.btn_agregar.setMinimumHeight(40)
+        self.btn_agregar.setEnabled(False)  # Deshabilitado hasta seleccionar artículo
         self.btn_agregar.clicked.connect(self.agregar_articulo)
 
         select_layout.addWidget(lbl_art)
-        select_layout.addWidget(self.cmb_articulo, 2)
+        select_layout.addWidget(self.buscador, 2)
         select_layout.addWidget(lbl_cant)
         select_layout.addWidget(self.spin_cantidad)
         select_layout.addWidget(self.btn_agregar)
@@ -155,47 +161,50 @@ class VentanaDevolucion(VentanaOperativaBase):
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar proveedores:\n{e}")
 
-    def cargar_articulos(self):
-        """Carga los artículos activos"""
-        try:
-            articulos = articulos_repo.get_todos(solo_activos=True, limit=5000)
-
-            self.cmb_articulo.addItem("(Seleccione artículo)", None)
-            for art in articulos:
-                texto = f"{art['nombre']} ({art['u_medida']})"
-                self.cmb_articulo.addItem(texto, {
-                    'id': art['id'],
-                    'nombre': art['nombre'],
-                    'u_medida': art['u_medida']
-                })
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al cargar artículos:\n{e}")
+    def on_articulo_seleccionado(self, articulo):
+        """Cuando se selecciona un artículo en el buscador"""
+        self.articulo_actual = articulo
+        self.btn_agregar.setEnabled(True)
+        self.spin_cantidad.setFocus()
+        self.spin_cantidad.line_edit.selectAll()
 
     def agregar_articulo(self):
         """Agrega un artículo a la lista temporal"""
-        data = self.cmb_articulo.currentData()
-        if not data or not isinstance(data, dict):
-            QMessageBox.warning(self, "⚠️ Aviso", "Seleccione un artículo.")
+        # Si hay texto en el buscador pero no hay artículo seleccionado, forzar búsqueda
+        if not self.articulo_actual and self.buscador.txt_buscar.text().strip():
+            self.buscador.buscar_exacto()
+            if not self.articulo_actual:
+                return  # La búsqueda ya habrá mostrado el diálogo de crear
+
+        if not self.articulo_actual:
+            QMessageBox.warning(self, "⚠️ Aviso", "Debe buscar y seleccionar un artículo primero.")
+            self.buscador.txt_buscar.setFocus()
             return
 
         cantidad = self.spin_cantidad.value()
 
         # Verificar si ya está agregado
         for art in self.articulos_temp:
-            if art['articulo_id'] == data['id']:
+            if art['articulo_id'] == self.articulo_actual['id']:
                 QMessageBox.warning(self, "⚠️ Aviso", "Este artículo ya está en la lista.")
                 return
 
         # Agregar
         self.articulos_temp.append({
-            'articulo_id': data['id'],
-            'nombre': data['nombre'],
-            'u_medida': data['u_medida'],
+            'articulo_id': self.articulo_actual['id'],
+            'nombre': self.articulo_actual['nombre'],
+            'u_medida': self.articulo_actual['u_medida'],
             'cantidad': cantidad
         })
 
         self.actualizar_tabla_articulos()
+
+        # Limpiar selección
+        self.articulo_actual = None
+        self.btn_agregar.setEnabled(False)
+        self.buscador.limpiar()
         self.spin_cantidad.setValue(1)
+        self.buscador.txt_buscar.setFocus()
 
     def llenar_fila_articulo(self, fila, articulo):
         """Llena una fila de la tabla con los datos del artículo"""
@@ -277,7 +286,7 @@ class VentanaDevolucion(VentanaOperativaBase):
         """Configura los atajos de teclado para la ventana"""
         # F2: Focus en búsqueda de artículo
         shortcut_buscar = QShortcut(QKeySequence("F2"), self)
-        shortcut_buscar.activated.connect(lambda: self.cmb_articulo.setFocus())
+        shortcut_buscar.activated.connect(lambda: self.buscador.txt_buscar.setFocus())
 
         # F4: Focus en motivo
         shortcut_motivo = QShortcut(QKeySequence("F4"), self)
@@ -297,7 +306,7 @@ class VentanaDevolucion(VentanaOperativaBase):
 
         # Actualizar tooltips
         self.btn_guardar.setToolTip("Guardar devolución (Ctrl+Enter)")
-        self.cmb_articulo.setToolTip("Buscar artículo (F2)")
+        self.buscador.txt_buscar.setToolTip("Buscar artículo (F2)")
         self.txt_motivo.setToolTip("Motivo de devolución (F4)")
 
     def limpiar_todo(self):

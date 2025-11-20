@@ -616,9 +616,8 @@ class VentanaMovimientos(QWidget):
             self.tabla_articulos.setItem(i, 2, QTableWidgetItem(art['u_medida']))
             self.tabla_articulos.setItem(i, 3, QTableWidgetItem(f"{art['cantidad']:.2f}"))
             
-            # Botón quitar (centrado)
-            contenedor, btn_quitar = crear_boton_quitar_centrado()
-            btn_quitar.clicked.connect(lambda checked, idx=i: self.quitar_articulo(idx))
+            # Botón quitar (centrado con callback ya conectado)
+            contenedor = crear_boton_quitar_centrado(lambda checked=False, idx=i: self.quitar_articulo(idx))
             self.tabla_articulos.setCellWidget(i, 4, contenedor)
     
     def quitar_articulo(self, index):

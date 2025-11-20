@@ -32,16 +32,16 @@ def get_todos(
 
     if filtro_texto:
         condiciones.append(
-            "(a.nombre LIKE ? OR a.ean LIKE ? OR a.ref_proveedor LIKE ? OR a.palabras_clave LIKE ?)"
+            "(a.nombre LIKE %s OR a.ean LIKE %s OR a.ref_proveedor LIKE %s OR a.palabras_clave LIKE %s)"
         )
         params.extend([f"%{filtro_texto}%"] * 4)
 
     if familia_id:
-        condiciones.append("a.familia_id = ?")
+        condiciones.append("a.familia_id = %s")
         params.append(familia_id)
 
     if solo_activos is not None:
-        condiciones.append("a.activo = ?")
+        condiciones.append("a.activo = %s")
         params.append(1 if solo_activos else 0)
 
     where_clause = " AND ".join(condiciones) if condiciones else "1=1"
@@ -61,7 +61,7 @@ def get_todos(
         LEFT JOIN familias f ON a.familia_id = f.id
         WHERE {where_clause}
         ORDER BY a.nombre
-        LIMIT ?
+        LIMIT %s
     """
     params.append(limit)
 
@@ -102,7 +102,7 @@ def get_by_id(articulo_id: int) -> Optional[Dict[str, Any]]:
         LEFT JOIN ubicaciones u ON a.ubicacion_id = u.id
         LEFT JOIN proveedores p ON a.proveedor_id = p.id
         LEFT JOIN familias f ON a.familia_id = f.id
-        WHERE a.id = ?
+        WHERE a.id = %s
     """
     return fetch_one(sql, (articulo_id,))
 
@@ -120,7 +120,7 @@ def get_by_ean(ean: str) -> Optional[Dict[str, Any]]:
     sql = """
         SELECT id, nombre, ean, ref_proveedor, activo
         FROM articulos
-        WHERE ean = ?
+        WHERE ean = %s
     """
     return fetch_one(sql, (ean,))
 
@@ -138,7 +138,7 @@ def get_by_referencia(ref_proveedor: str) -> Optional[Dict[str, Any]]:
     sql = """
         SELECT id, nombre, ean, ref_proveedor, activo
         FROM articulos
-        WHERE ref_proveedor = ?
+        WHERE ref_proveedor = %s
     """
     return fetch_one(sql, (ref_proveedor,))
 
@@ -187,7 +187,7 @@ def crear_articulo(
             min_alerta, ubicacion_id, proveedor_id, familia_id,
             marca, coste, pvp_sin, iva, activo
         )
-        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     return execute_query(
         sql,
@@ -229,10 +229,10 @@ def actualizar_articulo(
     """
     sql = """
         UPDATE articulos
-        SET ean=?, ref_proveedor=?, nombre=?, palabras_clave=?, u_medida=?,
-            min_alerta=?, ubicacion_id=?, proveedor_id=?, familia_id=?,
-            marca=?, coste=?, pvp_sin=?, iva=?, activo=?
-        WHERE id=?
+        SET ean=%s, ref_proveedor=%s, nombre=%s, palabras_clave=%s, u_medida=%s,
+            min_alerta=%s, ubicacion_id=%s, proveedor_id=%s, familia_id=%s,
+            marca=%s, coste=%s, pvp_sin=%s, iva=%s, activo=%s
+        WHERE id=%s
     """
     execute_query(
         sql,
@@ -261,7 +261,7 @@ def eliminar_articulo(articulo_id: int) -> bool:
     Raises:
         IntegrityError: Si el artículo tiene movimientos asociados
     """
-    sql = "DELETE FROM articulos WHERE id=?"
+    sql = "DELETE FROM articulos WHERE id=%s"
     execute_query(sql, (articulo_id,))
     return True
 
@@ -277,7 +277,7 @@ def activar_desactivar_articulo(articulo_id: int, activo: bool) -> bool:
     Returns:
         True si se actualizó correctamente
     """
-    sql = "UPDATE articulos SET activo=? WHERE id=?"
+    sql = "UPDATE articulos SET activo=%s WHERE id=%s"
     execute_query(sql, (1 if activo else 0, articulo_id))
     return True
 
@@ -329,7 +329,7 @@ def verificar_movimientos(articulo_id: int) -> bool:
     Returns:
         True si tiene movimientos, False si no tiene
     """
-    sql = "SELECT COUNT(*) as count FROM movimientos WHERE articulo_id = ?"
+    sql = "SELECT COUNT(*) as count FROM movimientos WHERE articulo_id = %s"
     result = fetch_one(sql, (articulo_id,))
     return result['count'] > 0 if result else False
 
@@ -374,19 +374,19 @@ def buscar_articulos_por_texto(texto: str, limit: int = 10) -> List[Dict[str, An
         SELECT id, nombre, u_medida, ean, ref_proveedor
         FROM articulos
         WHERE activo=1 AND (
-            ean LIKE ? OR
-            ref_proveedor LIKE ? OR
-            nombre LIKE ? OR
-            palabras_clave LIKE ?
+            ean LIKE %s OR
+            ref_proveedor LIKE %s OR
+            nombre LIKE %s OR
+            palabras_clave LIKE %s
         )
         ORDER BY
             CASE
-                WHEN ean = ? THEN 1
-                WHEN ref_proveedor = ? THEN 2
-                WHEN nombre LIKE ? THEN 3
+                WHEN ean = %s THEN 1
+                WHEN ref_proveedor = %s THEN 2
+                WHEN nombre LIKE %s THEN 3
                 ELSE 4
             END
-        LIMIT ?
+        LIMIT %s
     """
     params = (
         f"%{texto}%", f"%{texto}%", f"%{texto}%", f"%{texto}%",
@@ -413,3 +413,147 @@ def get_estadisticas_articulos() -> Dict[str, Any]:
     """
     result = fetch_one(sql)
     return result if result else {}
+
+
+def buscar_articulos_completo(
+    texto: str,
+    filtro_proveedor_id: Optional[int] = None,
+    filtro_almacen_id: Optional[int] = None,
+    filtro_familia_id: Optional[int] = None,
+    limit: int = 200
+) -> List[Dict[str, Any]]:
+    """
+    Busca artículos con todos los campos y soporta filtros múltiples.
+    Usada por el buscador avanzado de artículos.
+
+    Args:
+        texto: Texto de búsqueda (EAN, ref, nombre, palabras clave)
+        filtro_proveedor_id: Filtrar por proveedor (opcional)
+        filtro_almacen_id: Filtrar solo artículos con stock en ese almacén (opcional)
+        filtro_familia_id: Filtrar por familia (opcional)
+        limit: Número máximo de resultados
+
+    Returns:
+        Lista de artículos con todos los campos
+    """
+    query = """
+        SELECT a.id, a.nombre, a.u_medida, a.ean, a.ref_proveedor, a.coste, a.pvp_sin,
+               a.proveedor_id, a.familia_id, a.ubicacion_id, a.marca
+        FROM articulos a
+        WHERE a.activo=1
+    """
+    params = []
+
+    if texto:
+        query += """ AND (
+            a.ean LIKE %s OR
+            a.ref_proveedor LIKE %s OR
+            a.nombre LIKE %s OR
+            a.palabras_clave LIKE %s
+        )"""
+        params.extend([f"%{texto}%"] * 4)
+
+    if filtro_proveedor_id:
+        query += " AND a.proveedor_id=%s"
+        params.append(filtro_proveedor_id)
+
+    if filtro_almacen_id:
+        query += """ AND EXISTS (
+            SELECT 1 FROM vw_stock v
+            WHERE v.articulo_id=a.id AND v.almacen_id=%s AND v.delta > 0
+        )"""
+        params.append(filtro_almacen_id)
+
+    if filtro_familia_id:
+        query += " AND a.familia_id=%s"
+        params.append(filtro_familia_id)
+
+    if texto:
+        # Ordenar por relevancia si hay texto de búsqueda
+        query += """
+            ORDER BY
+                CASE
+                    WHEN a.ean = %s THEN 1
+                    WHEN a.ref_proveedor = %s THEN 2
+                    WHEN a.nombre LIKE %s THEN 3
+                    ELSE 4
+                END
+        """
+        params.extend([texto, texto, f"{texto}%"])
+    else:
+        query += " ORDER BY a.nombre"
+
+    query += " LIMIT %s"
+    params.append(limit)
+
+    return fetch_all(query, tuple(params))
+
+
+def buscar_articulo_exacto(
+    texto: str,
+    filtro_proveedor_id: Optional[int] = None,
+    filtro_almacen_id: Optional[int] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Busca un artículo por coincidencia EXACTA de EAN o referencia.
+    Usada para búsqueda rápida por código de barras.
+
+    Args:
+        texto: EAN o referencia a buscar (exacta)
+        filtro_proveedor_id: Filtrar por proveedor (opcional)
+        filtro_almacen_id: Filtrar solo si tiene stock en ese almacén (opcional)
+
+    Returns:
+        Artículo encontrado o None
+    """
+    query = """
+        SELECT a.id, a.nombre, a.u_medida, a.ean, a.ref_proveedor, a.coste, a.pvp_sin,
+               a.proveedor_id, a.familia_id, a.ubicacion_id, a.marca
+        FROM articulos a
+        WHERE a.activo=1 AND (a.ean=%s OR a.ref_proveedor=%s)
+    """
+    params = [texto, texto]
+
+    if filtro_proveedor_id:
+        query += " AND a.proveedor_id=%s"
+        params.append(filtro_proveedor_id)
+
+    if filtro_almacen_id:
+        query += """ AND EXISTS (
+            SELECT 1 FROM vw_stock v
+            WHERE v.articulo_id=a.id AND v.almacen_id=%s AND v.delta > 0
+        )"""
+        params.append(filtro_almacen_id)
+
+    query += " LIMIT 1"
+
+    return fetch_one(query, tuple(params))
+
+
+def get_ultimas_entradas(articulo_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Obtiene las últimas entradas (recepciones) de un artículo desde proveedores.
+
+    Args:
+        articulo_id: ID del artículo
+        limit: Número máximo de entradas a devolver (por defecto 50)
+
+    Returns:
+        Lista de entradas con fecha, cantidad y proveedor
+    """
+    sql = """
+        SELECT
+            m.fecha,
+            m.cantidad,
+            p.nombre AS proveedor,
+            m.albaran,
+            m.coste_unit
+        FROM movimientos m
+        LEFT JOIN proveedores p ON m.origen_id = p.id
+        WHERE m.articulo_id = %s
+          AND m.tipo = 'ENTRADA'
+        ORDER BY m.fecha DESC, m.id DESC
+        LIMIT %s
+    """
+
+    return fetch_all(sql, (articulo_id, limit))

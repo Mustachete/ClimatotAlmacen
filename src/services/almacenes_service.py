@@ -2,7 +2,7 @@
 Servicio de Almacenes - Lógica de negocio para gestión de almacenes y furgonetas
 """
 from typing import List, Dict, Any, Optional, Tuple
-import sqlite3
+import psycopg2
 from src.repos import almacenes_repo
 from src.core.logger import logger, log_operacion, log_validacion, log_error_bd
 
@@ -67,7 +67,7 @@ def crear_almacen(nombre: str, tipo: str = 'almacen', usuario: str = "admin") ->
 
         return True, f"Almacén '{nombre}' creado correctamente", almacen_id
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, f"Ya existe un almacén con el nombre '{nombre}'", None
     except Exception as e:
         log_error_bd("almacenes", "crear_almacen", e)
@@ -101,7 +101,7 @@ def actualizar_almacen(almacen_id: int, nombre: str, tipo: str, usuario: str = "
 
         return True, f"Almacén '{nombre}' actualizado correctamente"
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, f"Ya existe otro almacén con el nombre '{nombre}'"
     except Exception as e:
         log_error_bd("almacenes", "actualizar_almacen", e)
@@ -131,7 +131,7 @@ def eliminar_almacen(almacen_id: int, usuario: str = "admin") -> Tuple[bool, str
 
         return True, f"Almacén '{nombre}' eliminado correctamente"
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, "El almacén tiene movimientos asociados y no se puede eliminar"
     except Exception as e:
         log_error_bd("almacenes", "eliminar_almacen", e)

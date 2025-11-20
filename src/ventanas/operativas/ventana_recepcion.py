@@ -173,7 +173,8 @@ class DialogoRecepcion(VentanaOperativaBase):
             self.agregar_articulo()
         else:
             self.spin_cantidad.setFocus()
-            self.spin_cantidad.selectAll()
+            # SpinBoxClimatot usa line_edit en lugar de lineEdit
+            self.spin_cantidad.line_edit.selectAll()
 
     def agregar_articulo(self):
         """Agrega el artículo actual a la lista temporal"""
@@ -326,7 +327,8 @@ class DialogoRecepcion(VentanaOperativaBase):
                 articulos=articulos,
                 almacen_nombre="Almacén",
                 albaran=num_albaran,
-                usuario=session_manager.get_usuario_actual() or "admin"
+                usuario=session_manager.get_usuario_actual() or "admin",
+                proveedor_id=proveedor_id  # Pasar el ID del proveedor
             )
 
             if not exito:
@@ -455,6 +457,19 @@ class VentanaRecepcion(QWidget):
 
     def nueva_recepcion(self):
         """Abre el diálogo para nueva recepción"""
-        dialogo = DialogoRecepcion(self)
-        if dialogo.exec():
-            self.cargar_albaranes()
+        # Crear el diálogo sin parent para que sea ventana independiente
+        dialogo = DialogoRecepcion()
+        # Guardar referencia para evitar que se destruya prematuramente
+        self.dialogo_recepcion = dialogo
+        # Conectar señal cuando se cierra para recargar la lista
+        dialogo.destroyed.connect(self._recargar_albaranes_seguro)
+        dialogo.show()
+
+    def _recargar_albaranes_seguro(self):
+        """Recarga albaranes de forma segura, verificando que la ventana existe"""
+        try:
+            if self and not self.isHidden():
+                self.cargar_albaranes()
+        except RuntimeError:
+            # La ventana padre ya fue eliminada, no hacer nada
+            pass

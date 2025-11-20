@@ -29,11 +29,11 @@ def get_todos(
     params = []
 
     if estado:
-        condiciones.append("i.estado = ?")
+        condiciones.append("i.estado = %s")
         params.append(estado)
 
     if almacen_id:
-        condiciones.append("i.almacen_id = ?")
+        condiciones.append("i.almacen_id = %s")
         params.append(almacen_id)
 
     where_clause = " AND ".join(condiciones) if condiciones else "1=1"
@@ -57,7 +57,7 @@ def get_todos(
         WHERE {where_clause}
         GROUP BY i.id, i.fecha, i.responsable, i.almacen_id, i.observaciones, i.estado, i.fecha_cierre, a.nombre
         ORDER BY i.fecha DESC, i.id DESC
-        LIMIT ?
+        LIMIT %s
     """
     params.append(limit)
 
@@ -86,7 +86,7 @@ def get_by_id(inventario_id: int) -> Optional[Dict[str, Any]]:
             a.nombre AS almacen_nombre
         FROM inventarios i
         JOIN almacenes a ON i.almacen_id = a.id
-        WHERE i.id = ?
+        WHERE i.id = %s
     """
     return fetch_one(sql, (inventario_id,))
 
@@ -112,7 +112,7 @@ def get_inventario_abierto_usuario(usuario: str) -> Optional[Dict[str, Any]]:
             a.nombre AS almacen_nombre
         FROM inventarios i
         JOIN almacenes a ON i.almacen_id = a.id
-        WHERE i.responsable = ? AND i.estado = 'EN_PROCESO'
+        WHERE i.responsable = %s AND i.estado = 'EN_PROCESO'
         ORDER BY i.fecha DESC
         LIMIT 1
     """
@@ -139,7 +139,7 @@ def crear_inventario(
     """
     sql = """
         INSERT INTO inventarios(fecha, responsable, almacen_id, observaciones, estado)
-        VALUES(?, ?, ?, ?, 'EN_PROCESO')
+        VALUES(%s, %s, %s, %s, 'EN_PROCESO')
     """
     return execute_query(sql, (fecha, responsable, almacen_id, observaciones))
 
@@ -157,8 +157,8 @@ def finalizar_inventario(inventario_id: int, fecha_cierre: str) -> bool:
     """
     sql = """
         UPDATE inventarios
-        SET estado = 'FINALIZADO', fecha_cierre = ?
-        WHERE id = ?
+        SET estado = 'FINALIZADO', fecha_cierre = %s
+        WHERE id = %s
     """
     execute_query(sql, (fecha_cierre, inventario_id))
     return True
@@ -192,7 +192,7 @@ def get_detalle(inventario_id: int) -> List[Dict[str, Any]]:
             a.ref_proveedor AS articulo_ref
         FROM inventario_detalle id
         JOIN articulos a ON id.articulo_id = a.id
-        WHERE id.inventario_id = ?
+        WHERE id.inventario_id = %s
         ORDER BY a.nombre
     """
     return fetch_all(sql, (inventario_id,))
@@ -220,7 +220,7 @@ def get_linea_detalle(detalle_id: int) -> Optional[Dict[str, Any]]:
             a.u_medida AS articulo_u_medida
         FROM inventario_detalle id
         JOIN articulos a ON id.articulo_id = a.id
-        WHERE id.id = ?
+        WHERE id.id = %s
     """
     return fetch_one(sql, (detalle_id,))
 
@@ -250,10 +250,10 @@ def crear_lineas_detalle(
             query = """
                 SELECT DISTINCT a.id, COALESCE(SUM(v.delta), 0) as stock
                 FROM articulos a
-                LEFT JOIN vw_stock v ON a.id = v.articulo_id AND v.almacen_id = ?
+                LEFT JOIN vw_stock v ON a.id = v.articulo_id AND v.almacen_id = %s
                 WHERE a.activo = 1
                 GROUP BY a.id
-                HAVING stock > 0
+                HAVING COALESCE(SUM(v.delta), 0) > 0
                 ORDER BY a.nombre
             """
             cur.execute(query, (almacen_id,))
@@ -261,7 +261,7 @@ def crear_lineas_detalle(
             query = """
                 SELECT a.id, COALESCE(SUM(v.delta), 0) as stock
                 FROM articulos a
-                LEFT JOIN vw_stock v ON a.id = v.articulo_id AND v.almacen_id = ?
+                LEFT JOIN vw_stock v ON a.id = v.articulo_id AND v.almacen_id = %s
                 WHERE a.activo = 1
                 GROUP BY a.id
                 ORDER BY a.nombre
@@ -277,7 +277,7 @@ def crear_lineas_detalle(
 
             cur.execute("""
                 INSERT INTO inventario_detalle(inventario_id, articulo_id, stock_teorico, stock_contado, diferencia)
-                VALUES(?, ?, ?, 0, ?)
+                VALUES(%s, %s, %s, 0, %s)
             """, (inventario_id, articulo_id, stock_teorico, -stock_teorico))
 
         con.commit()
@@ -304,9 +304,9 @@ def actualizar_conteo(detalle_id: int, stock_contado: float) -> bool:
     """
     sql = """
         UPDATE inventario_detalle
-        SET stock_contado = ?,
-            diferencia = ? - stock_teorico
-        WHERE id = ?
+        SET stock_contado = %s,
+            diferencia = %s - stock_teorico
+        WHERE id = %s
     """
     execute_query(sql, (stock_contado, stock_contado, detalle_id))
     return True
@@ -334,7 +334,7 @@ def get_diferencias(inventario_id: int) -> List[Dict[str, Any]]:
             a.u_medida AS articulo_u_medida
         FROM inventario_detalle id
         JOIN articulos a ON id.articulo_id = a.id
-        WHERE id.inventario_id = ? AND id.diferencia != 0
+        WHERE id.inventario_id = %s AND id.diferencia != 0
         ORDER BY ABS(id.diferencia) DESC
     """
     return fetch_all(sql, (inventario_id,))
@@ -360,7 +360,7 @@ def get_estadisticas_inventario(inventario_id: int) -> Dict[str, Any]:
             SUM(CASE WHEN diferencia > 0 THEN diferencia ELSE 0 END) as total_sobrante,
             SUM(CASE WHEN diferencia < 0 THEN ABS(diferencia) ELSE 0 END) as total_faltante
         FROM inventario_detalle
-        WHERE inventario_id = ?
+        WHERE inventario_id = %s
     """
     result = fetch_one(sql, (inventario_id,))
     return result if result else {}
@@ -401,13 +401,13 @@ def get_articulos_sin_inventario_reciente(dias: int = 90) -> List[Dict[str, Any]
             a.nombre,
             a.u_medida,
             MAX(i.fecha) as ultimo_inventario,
-            julianday('now') - julianday(MAX(i.fecha)) as dias_desde_ultimo
+            EXTRACT(DAY FROM (CURRENT_DATE - MAX(i.fecha)::date)) as dias_desde_ultimo
         FROM articulos a
         LEFT JOIN inventario_detalle id ON a.id = id.articulo_id
         LEFT JOIN inventarios i ON id.inventario_id = i.id AND i.estado = 'FINALIZADO'
         WHERE a.activo = 1
         GROUP BY a.id, a.nombre, a.u_medida
-        HAVING ultimo_inventario IS NULL OR dias_desde_ultimo > ?
+        HAVING ultimo_inventario IS NULL OR EXTRACT(DAY FROM (CURRENT_DATE - MAX(i.fecha)::date)) > %s
         ORDER BY dias_desde_ultimo DESC NULLS FIRST
     """
     return fetch_all(sql, (dias,))

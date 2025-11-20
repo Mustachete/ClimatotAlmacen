@@ -322,7 +322,7 @@ class VentanaPedidoIdeal(QWidget):
     .value {{ text-align: right; }}
     .section {{ font-weight: bold; margin-top: 5px; margin-bottom: 2px; }}
 </style>
-<div style='font-weight: bold; font-size: 11px; margin-bottom: 5px;'>📊 RESUMEN DEL PEDIDO:</div>
+<div style='font-weight: bold; font-size: 13px; margin-bottom: 5px;'>📊 RESUMEN DEL PEDIDO:</div>
 <table>
 <tr>
     <td class="col" style="padding-right: 12px;">
@@ -623,7 +623,7 @@ class VentanaPedidoIdeal(QWidget):
             from datetime import datetime
             from PySide6.QtWidgets import QFileDialog
 
-            if not self.datos_pedido:
+            if not self.grupos_proveedores:
                 QMessageBox.warning(
                     self,
                     "⚠️ Sin datos",
@@ -667,7 +667,8 @@ class VentanaPedidoIdeal(QWidget):
                 ])
 
                 # Datos agrupados por proveedor
-                for prov_nombre, prov_data in self.datos_pedido.items():
+                for prov_data in self.grupos_proveedores:
+                    prov_nombre = prov_data['proveedor_nombre']
                     for art in prov_data['articulos']:
                         writer.writerow([
                             prov_nombre,
@@ -688,7 +689,7 @@ class VentanaPedidoIdeal(QWidget):
                 self,
                 "✅ Exportación exitosa",
                 f"Pedido completo exportado a:\n\n{ruta}\n\n"
-                f"Total de proveedores: {len(self.datos_pedido)}"
+                f"Total de proveedores: {len(self.grupos_proveedores)}"
             )
 
         except Exception as e:
@@ -787,23 +788,440 @@ class VentanaPedidoIdeal(QWidget):
     
     def _exportar_proveedor_pdf(self, proveedor_info: Dict[str, Any]):
         """Genera PDF del pedido de un proveedor"""
-        QMessageBox.information(self, "Próximamente",
-            f"Se generará PDF del pedido de {proveedor_info['proveedor_nombre']}")
+        try:
+            from datetime import datetime
+            from PySide6.QtWidgets import QFileDialog
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib import colors
+            from reportlab.lib.units import cm
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.enums import TA_CENTER, TA_LEFT
+
+            proveedor_nombre = proveedor_info['proveedor_nombre']
+            articulos = proveedor_info['articulos']
+
+            # Diálogo para guardar archivo
+            fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            nombre_limpio = "".join(c if c.isalnum() else "_" for c in proveedor_nombre)
+            nombre_sugerido = f"pedido_{nombre_limpio}_{fecha_str}.pdf"
+
+            ruta, _ = QFileDialog.getSaveFileName(
+                self,
+                f"Guardar pedido de {proveedor_nombre} como PDF",
+                nombre_sugerido,
+                "PDF Files (*.pdf);;All Files (*)"
+            )
+
+            if not ruta:
+                return  # Usuario canceló
+
+            # Crear PDF
+            doc = SimpleDocTemplate(ruta, pagesize=A4,
+                                   rightMargin=2*cm, leftMargin=2*cm,
+                                   topMargin=2*cm, bottomMargin=2*cm)
+
+            elementos = []
+            styles = getSampleStyleSheet()
+
+            # Estilo personalizado para el título
+            titulo_style = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Heading1'],
+                fontSize=16,
+                textColor=colors.HexColor('#1e40af'),
+                spaceAfter=20,
+                alignment=TA_CENTER
+            )
+
+            # Título
+            elementos.append(Paragraph("PEDIDO SUGERIDO", titulo_style))
+            elementos.append(Spacer(1, 0.5*cm))
+
+            # Información del proveedor
+            info_proveedor = [
+                ['Proveedor:', proveedor_nombre],
+                ['Contacto:', proveedor_info.get('proveedor_contacto', '')],
+                ['Teléfono:', proveedor_info.get('proveedor_telefono', '')],
+                ['Email:', proveedor_info.get('proveedor_email', '')],
+                ['Fecha:', datetime.now().strftime("%d/%m/%Y %H:%M")]
+            ]
+
+            tabla_info = Table(info_proveedor, colWidths=[4*cm, 13*cm])
+            tabla_info.setStyle(TableStyle([
+                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#475569')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ]))
+            elementos.append(tabla_info)
+            elementos.append(Spacer(1, 0.8*cm))
+
+            # Tabla de artículos
+            datos_tabla = [['Artículo', 'Ref', 'Stock', 'Cons/día', 'Días sin\nstock', 'Cantidad', 'Coste', 'Total']]
+
+            for art in articulos:
+                datos_tabla.append([
+                    art['nombre'][:30],  # Limitar longitud
+                    art.get('ref', '')[:15],
+                    f"{art['stock_actual']:.2f}",
+                    f"{art['consumo_diario']:.2f}",
+                    f"{art['dias_sin_stock']:.0f}",
+                    f"{art['cantidad_sugerida']:.2f}",
+                    f"{art['coste_unit']:.2f}€",
+                    f"{art['total']:.2f}€"
+                ])
+
+            # Totales
+            total_pedido = sum(art['total'] for art in articulos)
+            datos_tabla.append(['', '', '', '', '', '', 'TOTAL:', f"{total_pedido:.2f}€"])
+
+            tabla_articulos = Table(datos_tabla, colWidths=[5.5*cm, 2*cm, 1.5*cm, 1.5*cm, 1.5*cm, 1.5*cm, 1.5*cm, 2*cm])
+            tabla_articulos.setStyle(TableStyle([
+                # Encabezado
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e40af')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+                # Datos
+                ('FONTNAME', (0, 1), (-1, -2), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -2), 8),
+                ('ALIGN', (2, 1), (-1, -2), 'RIGHT'),
+                ('ALIGN', (0, 1), (1, -2), 'LEFT'),
+                # Fila de totales
+                ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#f1f5f9')),
+                ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, -1), (-1, -1), 10),
+                ('ALIGN', (0, -1), (-1, -1), 'RIGHT'),
+                # Bordes y líneas
+                ('GRID', (0, 0), (-1, -2), 0.5, colors.grey),
+                ('BOX', (0, 0), (-1, -1), 1, colors.black),
+                ('LINEABOVE', (0, -1), (-1, -1), 1.5, colors.black),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ]))
+
+            elementos.append(tabla_articulos)
+
+            # Pie de página
+            elementos.append(Spacer(1, 1*cm))
+            pie_style = ParagraphStyle('Pie', parent=styles['Normal'],
+                                      fontSize=8, textColor=colors.grey,
+                                      alignment=TA_CENTER)
+            elementos.append(Paragraph(
+                f"Documento generado automáticamente por ClimatotAlmacén - {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+                pie_style
+            ))
+
+            # Generar PDF
+            doc.build(elementos)
+
+            QMessageBox.information(
+                self,
+                "✅ PDF generado",
+                f"PDF del pedido exportado a:\n\n{ruta}\n\n"
+                f"Total artículos: {len(articulos)}\n"
+                f"Importe total: {total_pedido:.2f}€"
+            )
+
+        except Exception as e:
+            logger.exception(f"Error al generar PDF: {e}")
+            QMessageBox.critical(
+                self,
+                "❌ Error",
+                f"Error al generar PDF:\n{e}"
+            )
     
     def _generar_pdfs_proveedores(self):
         """Genera PDFs para todos los proveedores"""
-        QMessageBox.information(self, "Próximamente",
-            "Se generarán PDFs individuales para cada proveedor")
+        try:
+            from datetime import datetime
+            from PySide6.QtWidgets import QFileDialog
+            from pathlib import Path
+
+            if not self.grupos_proveedores:
+                QMessageBox.warning(
+                    self,
+                    "⚠️ Sin datos",
+                    "No hay datos de pedido para exportar.\n\n"
+                    "Primero calcule el pedido ideal."
+                )
+                return
+
+            # Preguntar carpeta de destino
+            carpeta = QFileDialog.getExistingDirectory(
+                self,
+                "Seleccione carpeta para guardar los PDFs",
+                "",
+                QFileDialog.ShowDirsOnly
+            )
+
+            if not carpeta:
+                return  # Usuario canceló
+
+            carpeta_path = Path(carpeta)
+            fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # Importar lo necesario para PDF
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib import colors
+            from reportlab.lib.units import cm
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.enums import TA_CENTER
+
+            pdfs_generados = []
+            errores = []
+
+            for prov_data in self.grupos_proveedores:
+                try:
+                    proveedor_nombre = prov_data['proveedor_nombre']
+                    articulos = prov_data['articulos']
+
+                    # Nombre de archivo
+                    nombre_limpio = "".join(c if c.isalnum() else "_" for c in proveedor_nombre)
+                    nombre_archivo = f"pedido_{nombre_limpio}_{fecha_str}.pdf"
+                    ruta_pdf = carpeta_path / nombre_archivo
+
+                    # Crear PDF (reutilizar lógica de _exportar_proveedor_pdf)
+                    doc = SimpleDocTemplate(str(ruta_pdf), pagesize=A4,
+                                           rightMargin=2*cm, leftMargin=2*cm,
+                                           topMargin=2*cm, bottomMargin=2*cm)
+
+                    elementos = []
+                    styles = getSampleStyleSheet()
+
+                    titulo_style = ParagraphStyle(
+                        'CustomTitle',
+                        parent=styles['Heading1'],
+                        fontSize=16,
+                        textColor=colors.HexColor('#1e40af'),
+                        spaceAfter=20,
+                        alignment=TA_CENTER
+                    )
+
+                    elementos.append(Paragraph("PEDIDO SUGERIDO", titulo_style))
+                    elementos.append(Spacer(1, 0.5*cm))
+
+                    info_proveedor = [
+                        ['Proveedor:', proveedor_nombre],
+                        ['Contacto:', prov_data.get('proveedor_contacto', '')],
+                        ['Teléfono:', prov_data.get('proveedor_telefono', '')],
+                        ['Email:', prov_data.get('proveedor_email', '')],
+                        ['Fecha:', datetime.now().strftime("%d/%m/%Y %H:%M")]
+                    ]
+
+                    tabla_info = Table(info_proveedor, colWidths=[4*cm, 13*cm])
+                    tabla_info.setStyle(TableStyle([
+                        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, -1), 10),
+                        ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#475569')),
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                    ]))
+                    elementos.append(tabla_info)
+                    elementos.append(Spacer(1, 0.8*cm))
+
+                    datos_tabla = [['Artículo', 'Ref', 'Stock', 'Cons/día', 'Días sin\nstock', 'Cantidad', 'Coste', 'Total']]
+
+                    for art in articulos:
+                        datos_tabla.append([
+                            art['nombre'][:30],
+                            art.get('ref', '')[:15],
+                            f"{art['stock_actual']:.2f}",
+                            f"{art['consumo_diario']:.2f}",
+                            f"{art['dias_sin_stock']:.0f}",
+                            f"{art['cantidad_sugerida']:.2f}",
+                            f"{art['coste_unit']:.2f}€",
+                            f"{art['total']:.2f}€"
+                        ])
+
+                    total_pedido = sum(art['total'] for art in articulos)
+                    datos_tabla.append(['', '', '', '', '', '', 'TOTAL:', f"{total_pedido:.2f}€"])
+
+                    tabla_articulos = Table(datos_tabla, colWidths=[5.5*cm, 2*cm, 1.5*cm, 1.5*cm, 1.5*cm, 1.5*cm, 1.5*cm, 2*cm])
+                    tabla_articulos.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e40af')),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, 0), 9),
+                        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+                        ('FONTNAME', (0, 1), (-1, -2), 'Helvetica'),
+                        ('FONTSIZE', (0, 1), (-1, -2), 8),
+                        ('ALIGN', (2, 1), (-1, -2), 'RIGHT'),
+                        ('ALIGN', (0, 1), (1, -2), 'LEFT'),
+                        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#f1f5f9')),
+                        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, -1), (-1, -1), 10),
+                        ('ALIGN', (0, -1), (-1, -1), 'RIGHT'),
+                        ('GRID', (0, 0), (-1, -2), 0.5, colors.grey),
+                        ('BOX', (0, 0), (-1, -1), 1, colors.black),
+                        ('LINEABOVE', (0, -1), (-1, -1), 1.5, colors.black),
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ('TOPPADDING', (0, 0), (-1, -1), 6),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                    ]))
+
+                    elementos.append(tabla_articulos)
+                    elementos.append(Spacer(1, 1*cm))
+
+                    pie_style = ParagraphStyle('Pie', parent=styles['Normal'],
+                                              fontSize=8, textColor=colors.grey,
+                                              alignment=TA_CENTER)
+                    elementos.append(Paragraph(
+                        f"Documento generado automáticamente por ClimatotAlmacén - {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+                        pie_style
+                    ))
+
+                    doc.build(elementos)
+                    pdfs_generados.append(nombre_archivo)
+
+                except Exception as e:
+                    logger.exception(f"Error al generar PDF para {proveedor_nombre}: {e}")
+                    errores.append(f"{proveedor_nombre}: {str(e)}")
+
+            # Mostrar resultado
+            mensaje = f"✅ Se generaron {len(pdfs_generados)} PDFs en:\n\n{carpeta}\n\n"
+            if errores:
+                mensaje += f"\n⚠️ Errores:\n" + "\n".join(errores)
+
+            QMessageBox.information(self, "PDFs generados", mensaje)
+
+        except Exception as e:
+            logger.exception(f"Error al generar PDFs masivos: {e}")
+            QMessageBox.critical(
+                self,
+                "❌ Error",
+                f"Error al generar PDFs:\n{e}"
+            )
     
     def _exportar_resumen_proveedores(self):
-        """Exporta el resumen de proveedores"""
-        QMessageBox.information(self, "Próximamente",
-            "Se exportará el resumen de proveedores a Excel")
+        """Exporta el resumen de proveedores a CSV"""
+        try:
+            import csv
+            from datetime import datetime
+            from PySide6.QtWidgets import QFileDialog
+
+            if not self.grupos_proveedores:
+                QMessageBox.warning(
+                    self,
+                    "⚠️ Sin datos",
+                    "No hay datos de pedido para exportar.\n\n"
+                    "Primero calcule el pedido ideal."
+                )
+                return
+
+            # Diálogo para guardar archivo
+            fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            nombre_sugerido = f"resumen_proveedores_{fecha_str}.csv"
+
+            ruta, _ = QFileDialog.getSaveFileName(
+                self,
+                "Guardar resumen de proveedores como CSV",
+                nombre_sugerido,
+                "CSV Files (*.csv);;All Files (*)"
+            )
+
+            if not ruta:
+                return  # Usuario canceló
+
+            # Escribir CSV con resumen por proveedor
+            with open(ruta, 'w', newline='', encoding='utf-8-sig') as csvfile:
+                writer = csv.writer(csvfile, delimiter=';')
+
+                # Encabezado
+                writer.writerow([
+                    'Proveedor',
+                    'Contacto',
+                    'Teléfono',
+                    'Email',
+                    'Artículos',
+                    'Cantidad Total Items',
+                    'Importe Total'
+                ])
+
+                total_general = 0.0
+                total_articulos = 0
+
+                # Datos por proveedor
+                for prov_data in self.grupos_proveedores:
+                    total_prov = sum(art['total'] for art in prov_data['articulos'])
+                    cantidad_total = sum(art['cantidad_sugerida'] for art in prov_data['articulos'])
+                    num_articulos = len(prov_data['articulos'])
+
+                    writer.writerow([
+                        prov_data['proveedor_nombre'],
+                        prov_data.get('proveedor_contacto', ''),
+                        prov_data.get('proveedor_telefono', ''),
+                        prov_data.get('proveedor_email', ''),
+                        num_articulos,
+                        f"{cantidad_total:.2f}".replace('.', ','),
+                        f"{total_prov:.2f}".replace('.', ',')
+                    ])
+
+                    total_general += total_prov
+                    total_articulos += num_articulos
+
+                # Fila de totales
+                writer.writerow([])
+                writer.writerow([
+                    'TOTAL',
+                    '',
+                    '',
+                    '',
+                    total_articulos,
+                    '',
+                    f"{total_general:.2f}".replace('.', ',')
+                ])
+
+            QMessageBox.information(
+                self,
+                "✅ Exportación exitosa",
+                f"Resumen de proveedores exportado a:\n\n{ruta}\n\n"
+                f"Total proveedores: {len(self.grupos_proveedores)}\n"
+                f"Importe total: {total_general:.2f}€"
+            )
+
+        except Exception as e:
+            logger.exception(f"Error al exportar resumen: {e}")
+            QMessageBox.critical(
+                self,
+                "❌ Error",
+                f"Error al exportar resumen:\n{e}"
+            )
     
     def _enviar_email_proveedor(self, proveedor_info: Dict[str, Any]):
         """Envía el pedido por email al proveedor"""
-        QMessageBox.information(self, "Próximamente",
-            f"Se enviará el pedido por email a {proveedor_info.get('proveedor_email')}")
+        email = proveedor_info.get('proveedor_email', '').strip()
+
+        if not email:
+            QMessageBox.warning(
+                self,
+                "⚠️ Email no disponible",
+                f"El proveedor {proveedor_info['proveedor_nombre']} no tiene email configurado.\n\n"
+                "Configure el email del proveedor en el maestro de proveedores."
+            )
+            return
+
+        # Mensaje informativo sobre configuración SMTP
+        QMessageBox.information(
+            self,
+            "📧 Envío de Email",
+            f"Función de envío de email en desarrollo.\n\n"
+            f"Para enviar el pedido a:\n"
+            f"• Proveedor: {proveedor_info['proveedor_nombre']}\n"
+            f"• Email: {email}\n\n"
+            f"Por ahora, puede:\n"
+            f"1. Exportar el pedido a PDF\n"
+            f"2. Enviarlo manualmente desde su cliente de correo\n\n"
+            f"Próximamente se añadirá envío automático configurando:\n"
+            f"• Servidor SMTP\n"
+            f"• Usuario y contraseña\n"
+            f"• Plantillas de email personalizadas"
+        )
     
     def _mostrar_ayuda(self):
         """Muestra ventana de ayuda"""

@@ -33,8 +33,10 @@ def asignar_furgoneta(
             raise ValueError(f"Turno inválido: {turno}. Debe ser 'manana', 'tarde' o 'completo'")
 
         sql = """
-            INSERT OR REPLACE INTO asignaciones_furgoneta(operario_id, fecha, turno, furgoneta_id)
-            VALUES(?, ?, ?, ?)
+            INSERT INTO asignaciones_furgoneta(operario_id, fecha, turno, furgoneta_id)
+            VALUES(%s, %s, %s, %s)
+            ON CONFLICT (fecha, turno, furgoneta_id)
+            DO UPDATE SET operario_id = EXCLUDED.operario_id
         """
         execute_query(sql, (operario_id, fecha, turno, furgoneta_id))
         logger.info(f"Furgoneta {furgoneta_id} asignada a operario {operario_id} - {fecha} {turno}")
@@ -66,9 +68,9 @@ def get_furgoneta_asignada(
             SELECT af.furgoneta_id, a.nombre as furgoneta_nombre
             FROM asignaciones_furgoneta af
             JOIN almacenes a ON af.furgoneta_id = a.id
-            WHERE af.operario_id = ?
-              AND af.fecha = ?
-              AND af.turno = ?
+            WHERE af.operario_id = %s
+              AND af.fecha = %s
+              AND af.turno = %s
         """
         return fetch_one(sql, (operario_id, fecha, turno))
 
@@ -104,16 +106,16 @@ def get_asignaciones_operario(
             FROM asignaciones_furgoneta af
             JOIN almacenes a ON af.furgoneta_id = a.id
             JOIN operarios o ON af.operario_id = o.id
-            WHERE af.operario_id = ?
+            WHERE af.operario_id = %s
         """
         params = [operario_id]
 
         if fecha_desde:
-            sql += " AND af.fecha >= ?"
+            sql += " AND af.fecha >= %s"
             params.append(fecha_desde)
 
         if fecha_hasta:
-            sql += " AND af.fecha <= ?"
+            sql += " AND af.fecha <= %s"
             params.append(fecha_hasta)
 
         sql += " ORDER BY af.fecha DESC, af.turno"
@@ -144,7 +146,7 @@ def eliminar_asignacion(
     try:
         sql = """
             DELETE FROM asignaciones_furgoneta
-            WHERE operario_id = ? AND fecha = ? AND turno = ?
+            WHERE operario_id = %s AND fecha = %s AND turno = %s
         """
         execute_query(sql, (operario_id, fecha, turno))
         logger.info(f"Asignación eliminada: operario {operario_id} - {fecha} {turno}")
@@ -177,12 +179,78 @@ def get_operarios_en_furgoneta(
                 af.turno
             FROM asignaciones_furgoneta af
             JOIN operarios o ON af.operario_id = o.id
-            WHERE af.furgoneta_id = ?
-              AND af.fecha = ?
+            WHERE af.furgoneta_id = %s
+              AND af.fecha = %s
             ORDER BY af.turno, o.nombre
         """
         return fetch_all(sql, (furgoneta_id, fecha))
 
     except Exception as e:
         logger.exception(f"Error al obtener operarios en furgoneta: {e}")
+        return []
+
+
+def buscar_asignaciones_filtradas(
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+    operario_id: Optional[int] = None,
+    furgoneta_id: Optional[int] = None,
+    turno: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Busca asignaciones con múltiples filtros opcionales.
+
+    Args:
+        fecha_desde: Fecha inicial (YYYY-MM-DD)
+        fecha_hasta: Fecha final (YYYY-MM-DD)
+        operario_id: Filtrar por operario
+        furgoneta_id: Filtrar por furgoneta
+        turno: Filtrar por turno ('manana', 'tarde', 'completo')
+
+    Returns:
+        Lista de asignaciones que cumplen los filtros
+    """
+    try:
+        sql = """
+            SELECT
+                af.fecha,
+                af.turno,
+                af.operario_id,
+                o.nombre as operario_nombre,
+                o.rol_operario,
+                af.furgoneta_id,
+                a.nombre as furgoneta_nombre
+            FROM asignaciones_furgoneta af
+            JOIN operarios o ON af.operario_id = o.id
+            JOIN almacenes a ON af.furgoneta_id = a.id
+            WHERE 1=1
+        """
+        params = []
+
+        if fecha_desde:
+            sql += " AND af.fecha >= %s"
+            params.append(fecha_desde)
+
+        if fecha_hasta:
+            sql += " AND af.fecha <= %s"
+            params.append(fecha_hasta)
+
+        if operario_id:
+            sql += " AND af.operario_id = %s"
+            params.append(operario_id)
+
+        if furgoneta_id:
+            sql += " AND af.furgoneta_id = %s"
+            params.append(furgoneta_id)
+
+        if turno:
+            sql += " AND af.turno = %s"
+            params.append(turno)
+
+        sql += " ORDER BY af.fecha DESC, af.turno, o.nombre"
+
+        return fetch_all(sql, tuple(params))
+
+    except Exception as e:
+        logger.exception(f"Error al buscar asignaciones filtradas: {e}")
         return []

@@ -23,7 +23,7 @@ def get_by_numero(albaran: str) -> Optional[Dict[str, Any]]:
         SELECT a.albaran, a.proveedor_id, a.fecha, p.nombre as proveedor_nombre
         FROM albaranes a
         LEFT JOIN proveedores p ON a.proveedor_id = p.id
-        WHERE a.albaran = ?
+        WHERE a.albaran = %s
     """
     return fetch_one(sql, (albaran,))
 
@@ -43,7 +43,7 @@ def verificar_duplicado(albaran: str, proveedor_id: Optional[int], fecha: str) -
     sql = """
         SELECT COUNT(*) as count
         FROM albaranes
-        WHERE albaran = ? AND proveedor_id = ? AND fecha = ?
+        WHERE albaran = %s AND proveedor_id = %s AND fecha = %s
     """
     result = fetch_one(sql, (albaran, proveedor_id, fecha))
     return result['count'] > 0 if result else False
@@ -61,7 +61,7 @@ def crear_albaran(albaran: str, proveedor_id: Optional[int], fecha: str) -> bool
     Returns:
         True si se creó correctamente
     """
-    sql = "INSERT INTO albaranes(albaran, proveedor_id, fecha) VALUES(?,?,?)"
+    sql = "INSERT INTO albaranes(albaran, proveedor_id, fecha) VALUES(%s,%s,%s)"
     execute_query(sql, (albaran, proveedor_id, fecha))
     return True
 
@@ -83,9 +83,9 @@ def get_todos(filtro_texto: Optional[str] = None, limit: int = 100) -> List[Dict
                    (SELECT COUNT(DISTINCT articulo_id) FROM movimientos WHERE albaran=a.albaran) as num_articulos
             FROM albaranes a
             LEFT JOIN proveedores p ON a.proveedor_id = p.id
-            WHERE a.albaran LIKE ? OR p.nombre LIKE ?
+            WHERE a.albaran LIKE %s OR p.nombre LIKE %s
             ORDER BY a.fecha DESC, a.albaran
-            LIMIT ?
+            LIMIT %s
         """
         params = (f"%{filtro_texto}%", f"%{filtro_texto}%", limit)
     else:
@@ -95,7 +95,7 @@ def get_todos(filtro_texto: Optional[str] = None, limit: int = 100) -> List[Dict
             FROM albaranes a
             LEFT JOIN proveedores p ON a.proveedor_id = p.id
             ORDER BY a.fecha DESC, a.albaran
-            LIMIT ?
+            LIMIT %s
         """
         params = (limit,)
 
@@ -116,7 +116,7 @@ def get_articulos_albaran(albaran: str) -> List[Dict[str, Any]]:
         SELECT a.nombre, m.cantidad, a.u_medida, m.coste_unit
         FROM movimientos m
         JOIN articulos a ON m.articulo_id = a.id
-        WHERE m.albaran = ?
+        WHERE m.albaran = %s
         ORDER BY a.nombre
     """
     return fetch_all(sql, (albaran,))
