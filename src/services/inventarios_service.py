@@ -285,7 +285,8 @@ def cancelar_inventario(
     usuario: str
 ) -> Tuple[bool, str]:
     """
-    Cancela un inventario en proceso (NO IMPLEMENTADO - futuro).
+    Cancela un inventario en proceso eliminándolo de la base de datos.
+    Solo se pueden cancelar inventarios en estado EN_PROCESO.
 
     Args:
         inventario_id: ID del inventario
@@ -295,8 +296,52 @@ def cancelar_inventario(
     Returns:
         Tupla (exito, mensaje)
     """
-    # TODO: Implementar cancelación de inventarios
-    return False, "Funcionalidad no implementada aún"
+    try:
+        # Verificar que el inventario existe y está en proceso
+        inventario = db.execute_query(
+            "SELECT * FROM inventarios WHERE id = %s",
+            (inventario_id,)
+        )
+
+        if not inventario:
+            return False, "El inventario no existe."
+
+        inventario = inventario[0]
+
+        if inventario['estado'] != 'EN_PROCESO':
+            return False, f"No se puede cancelar un inventario en estado '{inventario['estado']}'.\nSolo se pueden cancelar inventarios EN_PROCESO."
+
+        # Guardar en historial antes de eliminar
+        from src.services import historial_service
+        historial_service.guardar_en_historial(
+            usuario=usuario,
+            tipo_operacion='inventario_cancelado',
+            articulo_id=None,
+            articulo_nombre='',
+            cantidad=0,
+            u_medida='',
+            datos_adicionales={
+                'inventario_id': inventario_id,
+                'fecha_inventario': inventario['fecha'],
+                'responsable': inventario['responsable'],
+                'almacen_id': inventario['almacen_id'],
+                'motivo_cancelacion': motivo
+            }
+        )
+
+        # Eliminar inventario (CASCADE eliminará automáticamente el detalle)
+        db.execute_update(
+            "DELETE FROM inventarios WHERE id = %s",
+            (inventario_id,)
+        )
+
+        logger.info(f"Inventario {inventario_id} cancelado por {usuario}. Motivo: {motivo}")
+
+        return True, f"Inventario cancelado correctamente.\n\nMotivo: {motivo}"
+
+    except Exception as e:
+        logger.exception(f"Error al cancelar inventario {inventario_id}: {e}")
+        return False, f"Error al cancelar inventario:\n{e}"
 
 
 # ========================================

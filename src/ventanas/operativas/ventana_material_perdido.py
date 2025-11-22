@@ -9,9 +9,8 @@ from PySide6.QtGui import QShortcut, QKeySequence
 import datetime
 from src.ui.estilos import ESTILO_VENTANA
 from src.ui.widgets_personalizados import SpinBoxClimatot
-from src.core.db_utils import get_con
 from src.core.logger import logger
-from src.services import movimientos_service, historial_service
+from src.services import movimientos_service, historial_service, almacenes_service
 from src.core.session_manager import session_manager
 from src.repos import movimientos_repo
 
@@ -285,31 +284,19 @@ class VentanaMaterialPerdido(QWidget):
             return
 
         try:
-            con = get_con()
-            cur = con.cursor()
-            # Obtener stock actual en la furgoneta
-            cur.execute("""
-                SELECT a.id, a.nombre, a.u_medida, COALESCE(SUM(v.delta), 0) as stock
-                FROM articulos a
-                LEFT JOIN vw_stock v ON a.id = v.articulo_id AND v.almacen_id = ?
-                WHERE a.activo = 1
-                GROUP BY a.id, a.nombre, a.u_medida
-                HAVING stock > 0
-                ORDER BY a.nombre
-            """, (self.furgoneta_id,))
-            rows = cur.fetchall()
-            con.close()
+            # Usar almacenes_service en lugar de SQL directo
+            articulos = almacenes_service.obtener_stock_almacen(self.furgoneta_id)
 
             self.cmb_articulo.clear()
             self.cmb_articulo.addItem("(Seleccione artículo)", None)
 
-            for row in rows:
-                texto = f"{row[1]} ({row[2]}) - Stock: {row[3]:.2f}"
+            for art in articulos:
+                texto = f"{art['nombre']} ({art['u_medida']}) - Stock: {art['stock']:.2f}"
                 self.cmb_articulo.addItem(texto, {
-                    'id': row[0],
-                    'nombre': row[1],
-                    'u_medida': row[2],
-                    'stock': row[3]
+                    'id': art['id'],
+                    'nombre': art['nombre'],
+                    'u_medida': art['u_medida'],
+                    'stock': art['stock']
                 })
         except Exception as e:
             logger.exception(f"Error al cargar artículos de la furgoneta: {e}")

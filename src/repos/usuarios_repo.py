@@ -10,7 +10,7 @@ def get_by_usuario(usuario: str) -> Optional[Dict[str, Any]]:
     sql = """
         SELECT usuario, pass_hash, rol, activo
         FROM usuarios
-        WHERE usuario = ?
+        WHERE usuario = %s
     """
     return fetch_one(sql, (usuario,))
 
@@ -26,14 +26,14 @@ def get_todos(filtro_texto: Optional[str] = None, solo_activos: Optional[bool] =
     params = []
 
     if filtro_texto:
-        sql += " AND usuario LIKE ?"
+        sql += " AND usuario LIKE %s"
         params.append(f"%{filtro_texto}%")
 
     if solo_activos is not None:
-        sql += " AND activo = ?"
+        sql += " AND activo = %s"
         params.append(1 if solo_activos else 0)
 
-    sql += " ORDER BY usuario LIMIT ?"
+    sql += " ORDER BY usuario LIMIT %s"
     params.append(limit)
 
     return fetch_all(sql, tuple(params))
@@ -43,7 +43,7 @@ def crear_usuario(usuario: str, pass_hash: str, rol: str = "almacen", activo: in
     """Crea un nuevo usuario."""
     sql = """
         INSERT INTO usuarios(usuario, pass_hash, rol, activo)
-        VALUES(?, ?, ?, ?)
+        VALUES(%s, %s, %s, %s)
     """
     execute_query(sql, (usuario, pass_hash, rol, activo))
 
@@ -55,28 +55,28 @@ def actualizar_usuario(usuario: str, pass_hash: Optional[str] = None, rol: Optio
     params = []
 
     if pass_hash is not None:
-        campos.append("pass_hash = ?")
+        campos.append("pass_hash = %s")
         params.append(pass_hash)
 
     if rol is not None:
-        campos.append("rol = ?")
+        campos.append("rol = %s")
         params.append(rol)
 
     if activo is not None:
-        campos.append("activo = ?")
+        campos.append("activo = %s")
         params.append(activo)
 
     if not campos:
         return
 
-    sql = f"UPDATE usuarios SET {', '.join(campos)} WHERE usuario = ?"
+    sql = f"UPDATE usuarios SET {', '.join(campos)} WHERE usuario = %s"
     params.append(usuario)
     execute_query(sql, tuple(params))
 
 
 def eliminar_usuario(usuario: str) -> None:
     """Elimina un usuario."""
-    sql = "DELETE FROM usuarios WHERE usuario = ?"
+    sql = "DELETE FROM usuarios WHERE usuario = %s"
     execute_query(sql, (usuario,))
 
 

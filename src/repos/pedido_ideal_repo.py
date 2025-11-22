@@ -80,13 +80,13 @@ def get_consumo_articulo_periodo(articulo_id: int, dias: int) -> List[Dict[str, 
     fecha_inicio = (date.today() - timedelta(days=dias)).isoformat()
     
     sql = """
-        SELECT 
+        SELECT
             DATE(m.fecha) AS fecha,
             SUM(m.cantidad) AS cantidad_dia
         FROM movimientos m
-        WHERE m.articulo_id = ?
+        WHERE m.articulo_id = %s
           AND m.tipo = 'IMPUTACION'
-          AND m.fecha >= ?
+          AND m.fecha >= %s
         GROUP BY DATE(m.fecha)
         ORDER BY m.fecha
     """
@@ -116,13 +116,13 @@ def get_estadisticas_consumo(articulo_id: int, dias: int) -> Optional[Dict[str, 
                 SUM(cantidad) AS cantidad_dia
             FROM movimientos
             WHERE tipo = 'IMPUTACION'
-              AND fecha >= ?
-              AND articulo_id = ?
+              AND fecha >= %s
+              AND articulo_id = %s
             GROUP BY articulo_id, DATE(fecha)
         ) daily ON m.articulo_id = daily.articulo_id
         WHERE m.tipo = 'IMPUTACION'
-          AND m.fecha >= ?
-          AND m.articulo_id = ?
+          AND m.fecha >= %s
+          AND m.articulo_id = %s
     """
     return fetch_one(sql, (fecha_inicio, articulo_id, fecha_inicio, articulo_id))
 
@@ -199,7 +199,7 @@ def get_ultima_compra_articulo(articulo_id: int) -> Optional[Dict[str, Any]]:
             p.nombre AS proveedor
         FROM movimientos m
         LEFT JOIN proveedores p ON m.proveedor_id = p.id
-        WHERE m.articulo_id = ?
+        WHERE m.articulo_id = %s
           AND m.tipo = 'ENTRADA'
         ORDER BY m.fecha DESC
         LIMIT 1
@@ -223,10 +223,10 @@ def get_historial_compras_articulo(articulo_id: int, limit: int = 5) -> List[Dic
             p.nombre AS proveedor
         FROM movimientos m
         LEFT JOIN proveedores p ON m.proveedor_id = p.id
-        WHERE m.articulo_id = ?
+        WHERE m.articulo_id = %s
           AND m.tipo = 'ENTRADA'
         ORDER BY m.fecha DESC
-        LIMIT ?
+        LIMIT %s
     """
     return fetch_all(sql, (articulo_id, limit))
 
@@ -237,18 +237,21 @@ def get_historial_compras_articulo(articulo_id: int, limit: int = 5) -> List[Dic
 
 def existe_columna_en_articulos(nombre_columna: str) -> bool:
     """
-    Verifica si una columna existe en la tabla articulos.
-    Útil para compatibilidad con BDs que no han ejecutado el script de actualización.
-    
+    Verifica si una columna existe en la tabla articulos en PostgreSQL.
+
     Args:
         nombre_columna: Nombre de la columna a verificar
-        
+
     Returns:
         True si existe, False si no
     """
-    sql = "PRAGMA table_info(articulos)"
-    columnas = fetch_all(sql)
-    return any(col['name'] == nombre_columna for col in columnas)
+    sql = """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'articulos' AND column_name = %s
+    """
+    columnas = fetch_all(sql, (nombre_columna,))
+    return len(columnas) > 0
 
 
 def get_resumen_pedido_ideal(filtros: Dict[str, Any] = None) -> Dict[str, Any]:

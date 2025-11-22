@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-from src.core.db_utils import get_con, fetch_all, fetch_one
+from src.core.db_utils import fetch_all, fetch_one
 from src.core.logger import logger
 
 
@@ -56,7 +56,7 @@ def calcular_stock_inicial_furgoneta(furgoneta_id: int, fecha_inicio_semana: str
         query_entradas = """
             SELECT articulo_id, SUM(cantidad) as total
             FROM movimientos
-            WHERE destino_id = ? AND fecha <= ?
+            WHERE destino_id = %s AND fecha <= %s
             GROUP BY articulo_id
         """
         entradas = fetch_all(query_entradas, (furgoneta_id, fecha_limite))
@@ -67,7 +67,7 @@ def calcular_stock_inicial_furgoneta(furgoneta_id: int, fecha_inicio_semana: str
         query_salidas = """
             SELECT articulo_id, SUM(cantidad) as total
             FROM movimientos
-            WHERE origen_id = ? AND fecha <= ?
+            WHERE origen_id = %s AND fecha <= %s
             GROUP BY articulo_id
         """
         salidas = fetch_all(query_salidas, (furgoneta_id, fecha_limite))
@@ -125,8 +125,8 @@ def obtener_movimientos_semana(
             JOIN articulos a ON m.articulo_id = a.id
             LEFT JOIN familias f ON a.familia_id = f.id
             LEFT JOIN operarios o ON m.operario_id = o.id
-            WHERE m.fecha BETWEEN ? AND ?
-              AND (m.origen_id = ? OR m.destino_id = ?)
+            WHERE m.fecha BETWEEN %s AND %s
+              AND (m.origen_id = %s OR m.destino_id = %s)
             ORDER BY m.fecha, a.nombre
         """
 
@@ -235,7 +235,7 @@ def generar_datos_informe(
         lunes = calcular_lunes_de_semana(fecha_lunes)
 
         # 2. Obtener datos de la furgoneta
-        furgoneta_query = "SELECT id, nombre FROM almacenes WHERE id = ? AND tipo = 'furgoneta'"
+        furgoneta_query = "SELECT id, nombre FROM almacenes WHERE id = %s AND tipo = 'furgoneta'"
         furgoneta = fetch_one(furgoneta_query, (furgoneta_id,))
 
         if not furgoneta:
@@ -249,7 +249,7 @@ def generar_datos_informe(
 
         # Verificar si hay movimientos el sábado
         movs_sabado = fetch_one(
-            "SELECT COUNT(*) as count FROM movimientos WHERE fecha = ? AND (origen_id = ? OR destino_id = ?)",
+            "SELECT COUNT(*) as count FROM movimientos WHERE fecha = %s AND (origen_id = %s OR destino_id = %s)",
             (sabado.strftime("%Y-%m-%d"), furgoneta_id, furgoneta_id)
         )
 
@@ -320,7 +320,7 @@ def generar_datos_informe(
             if art_id not in articulos_dict and stock != 0:
                 # Obtener nombre del artículo
                 art_info = fetch_one(
-                    "SELECT a.nombre as articulo_nombre, f.nombre as familia_nombre FROM articulos a LEFT JOIN familias f ON a.familia_id = f.id WHERE a.id = ?",
+                    "SELECT a.nombre as articulo_nombre, f.nombre as familia_nombre FROM articulos a LEFT JOIN familias f ON a.familia_id = f.id WHERE a.id = %s",
                     (art_id,)
                 )
                 if art_info:

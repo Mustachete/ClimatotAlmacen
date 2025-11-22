@@ -2,7 +2,7 @@
 Servicio de Operarios - Lógica de negocio para gestión de operarios/técnicos
 """
 from typing import List, Dict, Any, Optional, Tuple
-import sqlite3
+import psycopg2
 from src.repos import operarios_repo
 from src.core.logger import logger, log_operacion, log_validacion, log_error_bd
 
@@ -140,7 +140,7 @@ def crear_operario(
 
         return True, f"Operario '{nombre}' creado correctamente como {rol_texto}", operario_id
 
-    except sqlite3.IntegrityError as e:
+    except psycopg2.IntegrityError as e:
         mensaje = f"Ya existe un operario con el nombre '{nombre}'"
         log_error_bd("operarios", "crear_operario", e)
         return False, mensaje, None
@@ -208,7 +208,7 @@ def actualizar_operario(
 
         return True, f"Operario '{nombre}' actualizado correctamente"
 
-    except sqlite3.IntegrityError as e:
+    except psycopg2.IntegrityError as e:
         mensaje = f"Ya existe otro operario con el nombre '{nombre}'"
         log_error_bd("operarios", "actualizar_operario", e)
         return False, mensaje
@@ -258,7 +258,7 @@ def eliminar_operario(
 
         return True, f"Operario '{nombre}' eliminado correctamente"
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         # Por si acaso la verificación previa no funcionó
         return False, (
             f"El operario tiene movimientos o asignaciones asociadas.\n\n"

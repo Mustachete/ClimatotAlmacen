@@ -2,7 +2,7 @@
 Servicio de Familias - Lógica de negocio para gestión de familias de artículos
 """
 from typing import List, Dict, Any, Optional, Tuple
-import sqlite3
+import psycopg2
 from src.repos import familias_repo
 from src.core.logger import logger, log_operacion, log_validacion, log_error_bd
 
@@ -54,7 +54,7 @@ def crear_familia(nombre: str, usuario: str = "admin") -> Tuple[bool, str, Optio
 
         return True, f"Familia '{nombre}' creada correctamente", familia_id
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, f"Ya existe una familia con el nombre '{nombre}'", None
     except Exception as e:
         log_error_bd("familias", "crear_familia", e)
@@ -84,7 +84,7 @@ def actualizar_familia(familia_id: int, nombre: str, usuario: str = "admin") -> 
 
         return True, f"Familia '{nombre}' actualizada correctamente"
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, f"Ya existe otra familia con el nombre '{nombre}'"
     except Exception as e:
         log_error_bd("familias", "actualizar_familia", e)
@@ -114,7 +114,7 @@ def eliminar_familia(familia_id: int, usuario: str = "admin") -> Tuple[bool, str
 
         return True, f"Familia '{nombre}' eliminada correctamente"
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, "La familia tiene artículos asociados y no se puede eliminar"
     except Exception as e:
         log_error_bd("familias", "eliminar_familia", e)

@@ -1,246 +1,84 @@
 # ventana_ubicaciones.py - Gestión de Ubicaciones del Almacén
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
-    QTableWidgetItem, QLineEdit, QLabel, QMessageBox, QDialog,
-    QFormLayout, QHeaderView
+    QTableWidgetItem, QLineEdit, QHeaderView
 )
-from PySide6.QtCore import Qt
-from src.ui.estilos import ESTILO_DIALOGO, ESTILO_VENTANA
+from src.ui.dialogo_maestro_base import DialogoMaestroBase
+from src.ui.ventana_maestro_base import VentanaMaestroBase
 from src.services import ubicaciones_service
-from src.core.session_manager import session_manager
+from src.utils import validaciones
 
 # ========================================
 # DIÁLOGO PARA AÑADIR/EDITAR UBICACIÓN
 # ========================================
-class DialogoUbicacion(QDialog):
+class DialogoUbicacion(DialogoMaestroBase):
     def __init__(self, parent=None, ubicacion_id=None):
-        super().__init__(parent)
-        self.ubicacion_id = ubicacion_id
-        self.setWindowTitle("✏️ Editar Ubicación" if ubicacion_id else "➕ Nueva Ubicación")
+        super().__init__(
+            parent=parent,
+            item_id=ubicacion_id,
+            titulo_nuevo="➕ Nueva Ubicación",
+            titulo_editar="✏️ Editar Ubicación",
+            service=ubicaciones_service,
+            nombre_item="ubicacion"
+        )
+
+    def configurar_dimensiones(self):
+        """Personaliza dimensiones del diálogo"""
         self.setMinimumSize(400, 180)
         self.resize(450, 200)
-        self.setStyleSheet(ESTILO_DIALOGO)
-        
-        layout = QVBoxLayout(self)
-        
-        # Formulario
-        form = QFormLayout()
-        
+
+    def crear_formulario(self, form_layout):
+        """Crea los campos del formulario"""
         self.txt_nombre = QLineEdit()
         self.txt_nombre.setPlaceholderText("Ej: A1, B2, Estantería 5...")
-        form.addRow("📍 Código/Nombre de Ubicación *:", self.txt_nombre)
-        
-        layout.addLayout(form)
-        
-        # Nota obligatorio
-        nota = QLabel("* Campo obligatorio")
-        nota.setStyleSheet("color: gray; font-size: 12px;")
-        layout.addWidget(nota)
-        
-        # Botones
-        layout.addStretch()
-        btn_layout = QHBoxLayout()
-        
-        self.btn_guardar = QPushButton("💾 Guardar")
-        self.btn_guardar.clicked.connect(self.guardar)
-        
-        self.btn_cancelar = QPushButton("❌ Cancelar")
-        self.btn_cancelar.clicked.connect(self.reject)
-        
-        btn_layout.addWidget(self.btn_guardar)
-        btn_layout.addWidget(self.btn_cancelar)
-        layout.addLayout(btn_layout)
-        
-        # Si estamos editando, cargar datos
-        if self.ubicacion_id:
-            self.cargar_datos()
-        
-        # Focus en el campo de texto
-        self.txt_nombre.setFocus()
-    
-    def cargar_datos(self):
-        """Carga los datos de la ubicación a editar"""
-        try:
-            ubicacion = ubicaciones_service.obtener_ubicacion(self.ubicacion_id)
-            if ubicacion:
-                self.txt_nombre.setText(ubicacion['nombre'] or "")
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al cargar datos:\n{e}")
-    
-    def guardar(self):
-        """Guarda la ubicación (nueva o editada)"""
-        nombre = self.txt_nombre.text().strip()
+        form_layout.addRow("📍 Código/Nombre de Ubicación *:", self.txt_nombre)
 
-        if self.ubicacion_id:
-            exito, mensaje = ubicaciones_service.actualizar_ubicacion(
-                ubicacion_id=self.ubicacion_id,
-                nombre=nombre,
-                usuario=session_manager.get_usuario_actual() or "admin"
-            )
-        else:
-            exito, mensaje, ubicacion_id = ubicaciones_service.crear_ubicacion(
-                nombre=nombre,
-                usuario=session_manager.get_usuario_actual() or "admin"
-            )
+    def obtener_datos_formulario(self):
+        """Obtiene los datos del formulario"""
+        return {'nombre': self.txt_nombre.text().strip()}
 
-        if not exito:
-            QMessageBox.warning(self, "⚠️ Error", mensaje)
-            return
-
-        QMessageBox.information(self, "✅ Éxito", mensaje)
-        self.accept()
+    def validar_datos(self, datos):
+        """Valida los datos del formulario"""
+        return validaciones.validar_campo_obligatorio(datos.get('nombre', ''), 'nombre de ubicación')
 
 # ========================================
 # VENTANA PRINCIPAL DE UBICACIONES
 # ========================================
-class VentanaUbicaciones(QWidget):
+class VentanaUbicaciones(VentanaMaestroBase):
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("📍 Gestión de Ubicaciones del Almacén")
+        super().__init__(
+            titulo="📍 Gestión de Ubicaciones del Almacén",
+            descripcion="Las ubicaciones sirven para identificar dónde está físicamente cada artículo en el almacén",
+            icono_nuevo="➕",
+            texto_nuevo="Nueva Ubicación",
+            parent=parent
+        )
+
+    def configurar_dimensiones(self):
+        """Configura las dimensiones específicas para esta ventana"""
         self.resize(700, 500)
         self.setMinimumSize(600, 400)
-        self.setStyleSheet(ESTILO_VENTANA)
-        
-        layout = QVBoxLayout(self)
-        
-        # Título
-        titulo = QLabel("📍 Gestión de Ubicaciones del Almacén")
-        titulo.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px;")
-        titulo.setAlignment(Qt.AlignCenter)
-        layout.addWidget(titulo)
-        
-        # Descripción
-        desc = QLabel("Las ubicaciones sirven para identificar dónde está físicamente cada artículo en el almacén")
-        desc.setStyleSheet("color: gray; font-size: 12px; margin-bottom: 10px;")
-        desc.setAlignment(Qt.AlignCenter)
-        layout.addWidget(desc)
-        
-        # Barra de búsqueda y botones superiores
-        top_layout = QHBoxLayout()
-        
-        lbl_buscar = QLabel("🔍 Buscar:")
-        self.txt_buscar = QLineEdit()
-        self.txt_buscar.setPlaceholderText("Escriba para buscar...")
-        self.txt_buscar.textChanged.connect(self.buscar)
-        
-        self.btn_nuevo = QPushButton("➕ Nueva Ubicación")
-        self.btn_nuevo.clicked.connect(self.nueva_ubicacion)
-        
-        self.btn_editar = QPushButton("✏️ Editar")
-        self.btn_editar.clicked.connect(self.editar_ubicacion)
-        self.btn_editar.setEnabled(False)
-        
-        self.btn_eliminar = QPushButton("🗑️ Eliminar")
-        self.btn_eliminar.clicked.connect(self.eliminar_ubicacion)
-        self.btn_eliminar.setEnabled(False)
-        
-        top_layout.addWidget(lbl_buscar)
-        top_layout.addWidget(self.txt_buscar)
-        top_layout.addWidget(self.btn_nuevo)
-        top_layout.addWidget(self.btn_editar)
-        top_layout.addWidget(self.btn_eliminar)
-        
-        layout.addLayout(top_layout)
-        
-        # Tabla de ubicaciones
-        self.tabla = QTableWidget()
+
+    def configurar_tabla(self):
+        """Configura las columnas de la tabla de ubicaciones"""
         self.tabla.setColumnCount(2)
         self.tabla.setHorizontalHeaderLabels(["ID", "Ubicación"])
-        self.tabla.setSelectionBehavior(QTableWidget.SelectRows)
-        self.tabla.setSelectionMode(QTableWidget.SingleSelection)
-        self.tabla.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.tabla.itemSelectionChanged.connect(self.seleccion_cambiada)
-        self.tabla.doubleClicked.connect(self.editar_ubicacion)
-        
-        # Ocultar columna ID
         self.tabla.setColumnHidden(0, True)
-        
+
         # Ajustar columnas
         header = self.tabla.horizontalHeader()
-        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Ubicación ocupa todo
-        
-        layout.addWidget(self.tabla)
-        
-        # Botón volver
-        btn_volver = QPushButton("⬅️ Volver")
-        btn_volver.clicked.connect(self.close)
-        layout.addWidget(btn_volver)
-        
-        # Cargar datos iniciales
-        self.cargar_ubicaciones()
-    
-    def cargar_ubicaciones(self, filtro=""):
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+
+    def get_service(self):
+        """Retorna el service de ubicaciones"""
+        return ubicaciones_service
+
+    def crear_dialogo(self, item_id=None):
+        """Crea el diálogo para crear/editar una ubicación"""
+        return DialogoUbicacion(self, item_id)
+
+    def cargar_datos_en_tabla(self, datos):
         """Carga las ubicaciones en la tabla"""
-        try:
-            filtro_texto = filtro if filtro else None
-            ubicaciones = ubicaciones_service.obtener_ubicaciones(filtro_texto=filtro_texto, limit=1000)
-
-            self.tabla.setRowCount(len(ubicaciones))
-
-            for i, ubi in enumerate(ubicaciones):
-                self.tabla.setItem(i, 0, QTableWidgetItem(str(ubi['id'])))
-                self.tabla.setItem(i, 1, QTableWidgetItem(ubi['nombre'] or ""))
-
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al cargar ubicaciones:\n{e}")
-    
-    def buscar(self):
-        """Filtra la tabla según el texto de búsqueda"""
-        filtro = self.txt_buscar.text().strip()
-        self.cargar_ubicaciones(filtro)
-    
-    def seleccion_cambiada(self):
-        """Se activan/desactivan botones según la selección"""
-        hay_seleccion = len(self.tabla.selectedItems()) > 0
-        self.btn_editar.setEnabled(hay_seleccion)
-        self.btn_eliminar.setEnabled(hay_seleccion)
-    
-    def nueva_ubicacion(self):
-        """Abre el diálogo para crear una nueva ubicación"""
-        dialogo = DialogoUbicacion(self)
-        if dialogo.exec():
-            self.cargar_ubicaciones()
-    
-    def editar_ubicacion(self):
-        """Abre el diálogo para editar la ubicación seleccionada"""
-        seleccion = self.tabla.currentRow()
-        if seleccion < 0:
-            return
-        
-        ubicacion_id = int(self.tabla.item(seleccion, 0).text())
-        dialogo = DialogoUbicacion(self, ubicacion_id)
-        if dialogo.exec():
-            self.cargar_ubicaciones()
-    
-    def eliminar_ubicacion(self):
-        """Elimina la ubicación seleccionada"""
-        seleccion = self.tabla.currentRow()
-        if seleccion < 0:
-            return
-
-        ubicacion_id = int(self.tabla.item(seleccion, 0).text())
-        nombre = self.tabla.item(seleccion, 1).text()
-
-        respuesta = QMessageBox.question(
-            self,
-            "⚠️ Confirmar eliminación",
-            f"¿Está seguro de eliminar la ubicación '{nombre}'?\n\n"
-            "Esta acción no se puede deshacer.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-
-        if respuesta != QMessageBox.Yes:
-            return
-
-        exito, mensaje = ubicaciones_service.eliminar_ubicacion(
-            ubicacion_id=ubicacion_id,
-            usuario=session_manager.get_usuario_actual() or "admin"
-        )
-
-        if not exito:
-            QMessageBox.warning(self, "⚠️ No se puede eliminar", mensaje)
-            return
-
-        QMessageBox.information(self, "✅ Éxito", mensaje)
-        self.cargar_ubicaciones()
+        self.tabla.setRowCount(len(datos))
+        for i, ubi in enumerate(datos):
+            self.tabla.setItem(i, 0, QTableWidgetItem(str(ubi['id'])))
+            self.tabla.setItem(i, 1, QTableWidgetItem(ubi['nombre'] or ""))

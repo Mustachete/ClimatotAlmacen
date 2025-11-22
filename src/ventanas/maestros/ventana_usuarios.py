@@ -1,278 +1,221 @@
 # ventana_usuarios.py - Gestión de Usuarios del Sistema
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
-    QTableWidgetItem, QLineEdit, QLabel, QMessageBox, QDialog,
-    QFormLayout, QHeaderView, QComboBox, QCheckBox
+    QVBoxLayout, QHBoxLayout, QPushButton,
+    QTableWidgetItem, QLineEdit, QLabel, QMessageBox,
+    QHeaderView, QComboBox, QCheckBox
 )
 from PySide6.QtCore import Qt
-from src.ui.estilos import ESTILO_DIALOGO, ESTILO_VENTANA
+from src.ui.dialogo_maestro_base import DialogoMaestroBase
+from src.ui.ventana_maestro_base import VentanaMaestroBase
 from src.services import usuarios_service
 from src.core.session_manager import session_manager
+from src.utils import validaciones
 
 
 # ========================================
 # DIÁLOGO PARA AÑADIR/EDITAR USUARIO
 # ========================================
-class DialogoUsuario(QDialog):
+class DialogoUsuario(DialogoMaestroBase):
     def __init__(self, parent=None, usuario=None):
-        super().__init__(parent)
-        self.usuario = usuario  # Nombre de usuario a editar (None si es nuevo)
-        self.setWindowTitle("✏️ Editar Usuario" if usuario else "➕ Nuevo Usuario")
-        self.setMinimumSize(450, 300)
-        self.resize(500, 350)
-        self.setStyleSheet(ESTILO_DIALOGO)
+        # Guardar usuario antes de llamar a super (DialogoMaestroBase usa item_id)
+        self.usuario_nombre = usuario
 
-        layout = QVBoxLayout(self)
+        super().__init__(
+            parent=parent,
+            item_id=usuario,  # Usa el nombre de usuario como ID
+            titulo_nuevo="➕ Nuevo Usuario",
+            titulo_editar="✏️ Editar Usuario",
+            service=usuarios_service,
+            nombre_item="usuario",
+            mostrar_nota_obligatorios=False  # Usamos nota personalizada
+        )
 
-        # Formulario
-        form = QFormLayout()
+    def configurar_dimensiones(self):
+        """Personaliza dimensiones del diálogo"""
+        self.setMinimumSize(450, 350)
+        self.resize(500, 400)
 
+    def crear_formulario(self, form_layout):
+        """Crea los campos del formulario"""
         # Usuario
         self.txt_usuario = QLineEdit()
         self.txt_usuario.setPlaceholderText("Mínimo 3 caracteres (a-z, 0-9, _, -)")
-        if self.usuario:
-            self.txt_usuario.setText(self.usuario)
-            self.txt_usuario.setEnabled(False)  # No se puede cambiar el usuario
-        form.addRow("👤 Usuario *:", self.txt_usuario)
+        if self.usuario_nombre:
+            self.txt_usuario.setText(self.usuario_nombre)
+            self.txt_usuario.setEnabled(False)  # No se puede cambiar
+        form_layout.addRow("👤 Usuario *:", self.txt_usuario)
 
         # Contraseña
         self.txt_password = QLineEdit()
-        self.txt_password.setEchoMode(QLineEdit.Password)
-        if self.usuario:
+        self.txt_password.setEchoMode(QLineEdit.EchoMode.Password)
+        if self.usuario_nombre:
             self.txt_password.setPlaceholderText("Dejar vacío para no cambiar")
         else:
             self.txt_password.setPlaceholderText("Mínimo 4 caracteres")
-        form.addRow("🔒 Contraseña" + (" *:" if not self.usuario else ":"), self.txt_password)
+        form_layout.addRow("🔒 Contraseña" + (" *:" if not self.usuario_nombre else ":"), self.txt_password)
 
         # Confirmar contraseña
         self.txt_password_confirm = QLineEdit()
-        self.txt_password_confirm.setEchoMode(QLineEdit.Password)
+        self.txt_password_confirm.setEchoMode(QLineEdit.EchoMode.Password)
         self.txt_password_confirm.setPlaceholderText("Repetir contraseña")
-        form.addRow("🔒 Confirmar Contraseña:", self.txt_password_confirm)
+        form_layout.addRow("🔒 Confirmar Contraseña:", self.txt_password_confirm)
 
         # Rol
         self.cmb_rol = QComboBox()
         self.cmb_rol.addItems(["admin", "almacen", "operario"])
-        form.addRow("👔 Rol *:", self.cmb_rol)
+        form_layout.addRow("👔 Rol *:", self.cmb_rol)
 
         # Activo
         self.chk_activo = QCheckBox("Usuario activo")
         self.chk_activo.setChecked(True)
-        form.addRow("", self.chk_activo)
+        form_layout.addRow("", self.chk_activo)
 
-        layout.addLayout(form)
-
-        # Nota obligatorio
+        # Nota personalizada
         nota = QLabel("* Campos obligatorios")
         nota.setStyleSheet("color: gray; font-size: 12px;")
-        layout.addWidget(nota)
+        form_layout.addRow("", nota)
 
         # Advertencia de edición
-        if self.usuario:
+        if self.usuario_nombre:
             advertencia = QLabel(
                 "⚠️ El nombre de usuario no se puede modificar.\n"
                 "Para cambiar contraseña, ingrese la nueva contraseña."
             )
             advertencia.setStyleSheet("color: #f97316; font-size: 11px; margin: 5px;")
             advertencia.setWordWrap(True)
-            layout.addWidget(advertencia)
+            form_layout.addRow("", advertencia)
 
-        # Botones
-        layout.addStretch()
-        btn_layout = QHBoxLayout()
-
-        self.btn_guardar = QPushButton("💾 Guardar")
-        self.btn_guardar.clicked.connect(self.guardar)
-
-        self.btn_cancelar = QPushButton("❌ Cancelar")
-        self.btn_cancelar.clicked.connect(self.reject)
-
-        btn_layout.addWidget(self.btn_guardar)
-        btn_layout.addWidget(self.btn_cancelar)
-        layout.addLayout(btn_layout)
-
-        # Si estamos editando, cargar datos
-        if self.usuario:
-            self.cargar_datos()
-
-        # Focus en el campo apropiado
-        if self.usuario:
+    def _set_focus_inicial(self):
+        """Focus en el campo apropiado según modo"""
+        if self.usuario_nombre:
             self.txt_password.setFocus()
         else:
             self.txt_usuario.setFocus()
 
-        # Conectar teclas Esc y Return
-        self.btn_guardar.setDefault(True)  # Return = Guardar
-        self.btn_cancelar.setShortcut("Esc")  # Esc = Cancelar
+    def obtener_datos_formulario(self):
+        """Obtiene los datos del formulario"""
+        password = self.txt_password.text()
+        return {
+            'usuario': self.txt_usuario.text().strip(),
+            'password': password if password else None,
+            'rol': self.cmb_rol.currentText(),
+            'activo': self.chk_activo.isChecked()
+        }
 
-    def cargar_datos(self):
-        """Carga los datos del usuario a editar"""
-        try:
-            user_data = usuarios_service.obtener_usuario(self.usuario)
-            if user_data:
-                # Rol
-                index = self.cmb_rol.findText(user_data['rol'])
-                if index >= 0:
-                    self.cmb_rol.setCurrentIndex(index)
+    def validar_datos(self, datos):
+        """Valida los datos del formulario"""
+        # Validar usuario obligatorio
+        valido, mensaje = validaciones.validar_campo_obligatorio(datos.get('usuario', ''), 'usuario')
+        if not valido:
+            return False, mensaje
 
-                # Activo
-                self.chk_activo.setChecked(bool(user_data['activo']))
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al cargar datos:\n{e}")
+        # Validar nombre de usuario (formato)
+        valido, mensaje = validaciones.validar_nombre_usuario(datos['usuario'])
+        if not valido:
+            return False, mensaje
 
-    def guardar(self):
-        """Guarda el usuario (nuevo o editado)"""
-        usuario = self.txt_usuario.text().strip()
+        # Validar contraseñas coincidan
         password = self.txt_password.text()
         password_confirm = self.txt_password_confirm.text()
-        rol = self.cmb_rol.currentText()
-        activo = self.chk_activo.isChecked()
-
-        # Validar contraseña
         if password or password_confirm:
             if password != password_confirm:
-                QMessageBox.warning(self, "⚠️ Error", "Las contraseñas no coinciden")
-                self.txt_password_confirm.setFocus()
-                return
+                return False, "Las contraseñas no coinciden"
 
-        # Usuario actual
-        usuario_actual = session_manager.get_usuario_actual() or "admin"
+        # Validar contraseña obligatoria en creación
+        if not self.usuario_nombre and not password:
+            return False, "La contraseña es obligatoria para usuarios nuevos"
 
-        if self.usuario:
-            # Actualizar usuario existente
-            # Verificar que no se esté desactivando a sí mismo
-            if self.usuario == usuario_actual and not activo:
-                QMessageBox.warning(
-                    self,
-                    "⚠️ No Permitido",
-                    "No puede desactivar su propio usuario.\n\n"
-                    "Use otra cuenta de administrador para realizar esta acción."
-                )
-                return
+        # Validar password seguro si se proporciona
+        if password:
+            valido, mensaje = validaciones.validar_password_seguro(password, minimo_caracteres=4)
+            if not valido:
+                return False, mensaje
 
-            exito, mensaje = usuarios_service.actualizar_usuario(
-                usuario=self.usuario,
-                password=password if password else None,
-                rol=rol,
-                activo=activo,
-                usuario_modificador=usuario_actual
-            )
-        else:
-            # Crear nuevo usuario
-            if not password:
-                QMessageBox.warning(self, "⚠️ Error", "La contraseña es obligatoria para usuarios nuevos")
-                self.txt_password.setFocus()
-                return
+        # Validar que no se desactive a sí mismo
+        if self.usuario_nombre:
+            usuario_actual = session_manager.get_usuario_actual()
+            if self.usuario_nombre == usuario_actual and not datos['activo']:
+                return False, "No puede desactivar su propio usuario"
 
-            exito, mensaje = usuarios_service.crear_usuario(
-                usuario=usuario,
-                password=password,
-                rol=rol,
-                activo=activo,
-                usuario_creador=usuario_actual
-            )
+        return True, ""
 
-        if not exito:
-            QMessageBox.warning(self, "⚠️ Error", mensaje)
-            return
+    def cargar_datos_en_formulario(self, item_data):
+        """Personaliza carga de datos"""
+        # No cargar usuario (ya está seteado y deshabilitado)
+        # No cargar password (nunca se muestra)
 
-        QMessageBox.information(self, "✅ Éxito", mensaje)
-        self.accept()
+        # Cargar rol
+        if 'rol' in item_data:
+            index = self.cmb_rol.findText(item_data['rol'])
+            if index >= 0:
+                self.cmb_rol.setCurrentIndex(index)
+
+        # Cargar activo
+        if 'activo' in item_data:
+            self.chk_activo.setChecked(bool(item_data['activo']))
+
+    def _crear_item(self, datos):
+        """Sobrescribe para usar usuario_creador en vez de usuario"""
+        try:
+            datos['usuario_creador'] = session_manager.get_usuario_actual() or "admin"
+            resultado = self.service.crear_usuario(**datos)
+
+            if isinstance(resultado, tuple) and len(resultado) >= 2:
+                return resultado[0], resultado[1]
+            else:
+                return False, "Respuesta inválida del service"
+        except Exception as e:
+            return False, f"Error al crear:\n{e}"
+
+    def _actualizar_item(self, datos):
+        """Sobrescribe para usar usuario_modificador en vez de usuario"""
+        try:
+            datos['usuario_modificador'] = session_manager.get_usuario_actual() or "admin"
+            resultado = self.service.actualizar_usuario(**datos)
+
+            if isinstance(resultado, tuple) and len(resultado) >= 2:
+                return resultado[0], resultado[1]
+            else:
+                return False, "Respuesta inválida del service"
+        except Exception as e:
+            return False, f"Error al actualizar:\n{e}"
 
 
 # ========================================
 # VENTANA PRINCIPAL DE USUARIOS
 # ========================================
-class VentanaUsuarios(QWidget):
+class VentanaUsuarios(VentanaMaestroBase):
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("👥 Gestión de Usuarios del Sistema")
-        self.resize(900, 550)
-        self.setMinimumSize(700, 450)
-        self.setStyleSheet(ESTILO_VENTANA)
-
-        # Verificar que el usuario actual es admin
+        # Verificar que el usuario actual es admin ANTES de llamar a super()
         if not session_manager.is_admin():
+            # Crear widget temporal para mostrar mensaje
+            from PySide6.QtWidgets import QWidget
+            temp = QWidget(parent)
             QMessageBox.critical(
-                self,
+                temp,
                 "❌ Acceso Denegado",
                 "Solo los administradores pueden gestionar usuarios.\n\n"
                 "Contacte a un administrador del sistema."
             )
-            self.close()
-            return
+            # No podemos continuar, lanzar excepción
+            raise PermissionError("Solo administradores pueden acceder a gestión de usuarios")
 
-        layout = QVBoxLayout(self)
-
-        # Título
-        titulo = QLabel("👥 Gestión de Usuarios del Sistema")
-        titulo.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px;")
-        titulo.setAlignment(Qt.AlignCenter)
-        layout.addWidget(titulo)
-
-        # Descripción
-        desc = QLabel(
-            "Administre los usuarios que tienen acceso al sistema. "
-            "Solo usuarios con rol 'admin' pueden acceder a esta funcionalidad."
+        super().__init__(
+            titulo="👥 Gestión de Usuarios del Sistema",
+            descripcion="Administre los usuarios que tienen acceso al sistema. Solo usuarios con rol 'admin' pueden acceder a esta funcionalidad.",
+            icono_nuevo="➕",
+            texto_nuevo="Nuevo Usuario",
+            parent=parent
         )
-        desc.setStyleSheet("color: gray; font-size: 12px; margin-bottom: 10px;")
-        desc.setAlignment(Qt.AlignCenter)
-        desc.setWordWrap(True)
-        layout.addWidget(desc)
 
-        # Barra de búsqueda y botones superiores
-        top_layout = QHBoxLayout()
+        # Añadir información de sesión actual al final
+        self._agregar_info_sesion()
 
-        lbl_buscar = QLabel("🔍 Buscar:")
-        self.txt_buscar = QLineEdit()
-        self.txt_buscar.setPlaceholderText("Filtrar por usuario...")
-        self.txt_buscar.textChanged.connect(self.buscar)
+    def _agregar_info_sesion(self):
+        """Añade información de la sesión actual debajo de la tabla"""
+        layout_principal = self.layout()
 
-        self.btn_nuevo = QPushButton("➕ Nuevo Usuario")
-        self.btn_nuevo.clicked.connect(self.nuevo_usuario)
-
-        self.btn_editar = QPushButton("✏️ Editar")
-        self.btn_editar.clicked.connect(self.editar_usuario)
-        self.btn_editar.setEnabled(False)
-
-        self.btn_eliminar = QPushButton("🗑️ Eliminar")
-        self.btn_eliminar.clicked.connect(self.eliminar_usuario)
-        self.btn_eliminar.setEnabled(False)
-
-        self.btn_refrescar = QPushButton("🔄 Refrescar")
-        self.btn_refrescar.clicked.connect(lambda: self.cargar_usuarios())
-
-        top_layout.addWidget(lbl_buscar)
-        top_layout.addWidget(self.txt_buscar)
-        top_layout.addWidget(self.btn_nuevo)
-        top_layout.addWidget(self.btn_editar)
-        top_layout.addWidget(self.btn_eliminar)
-        top_layout.addWidget(self.btn_refrescar)
-
-        layout.addLayout(top_layout)
-
-        # Tabla de usuarios
-        self.tabla = QTableWidget()
-        self.tabla.setColumnCount(4)
-        self.tabla.setHorizontalHeaderLabels(["Usuario", "Rol", "Estado", "ID_Hidden"])
-        self.tabla.setSelectionBehavior(QTableWidget.SelectRows)
-        self.tabla.setSelectionMode(QTableWidget.SingleSelection)
-        self.tabla.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.tabla.itemSelectionChanged.connect(self.seleccion_cambiada)
-        self.tabla.doubleClicked.connect(self.editar_usuario)
-
-        # Ocultar columna ID
-        self.tabla.setColumnHidden(3, True)
-
-        # Ajustar columnas
-        header = self.tabla.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Usuario
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Rol
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Estado
-
-        layout.addWidget(self.tabla)
-
-        # Información de sesión actual
+        # Insertar antes del botón volver (que está al final)
         info_layout = QHBoxLayout()
         usuario_actual = session_manager.get_usuario_actual() or "desconocido"
         rol_actual = session_manager.get_rol_actual() or "desconocido"
@@ -281,79 +224,107 @@ class VentanaUsuarios(QWidget):
         info_label.setStyleSheet("color: #64748b; font-size: 11px;")
         info_layout.addWidget(info_label)
         info_layout.addStretch()
-        layout.addLayout(info_layout)
 
-        # Botón volver
-        btn_volver = QPushButton("⬅️ Volver")
-        btn_volver.clicked.connect(self.close)
-        layout.addWidget(btn_volver)
+        # Insertar antes del último widget (botón volver)
+        layout_principal.insertLayout(layout_principal.count() - 1, info_layout)
 
-        # Cargar datos iniciales
-        self.cargar_usuarios()
+    def _crear_interfaz(self):
+        """Sobrescribe para añadir botones personalizados"""
+        super()._crear_interfaz()
 
-    def cargar_usuarios(self, filtro=""):
-        """Carga los usuarios en la tabla"""
+        # Añadir botones a la barra superior
+        layout_principal = self.layout()
+        top_layout = layout_principal.itemAt(2).layout()
+
+        btn_notificaciones = QPushButton("🔔 Config. Notificaciones")
+        btn_notificaciones.clicked.connect(self.configurar_notificaciones_usuario)
+        btn_notificaciones.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                font-weight: bold;
+                border-radius: 5px;
+                padding: 8px 12px;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+        """)
+        top_layout.addWidget(btn_notificaciones)
+
+        btn_refrescar = QPushButton("🔄 Refrescar")
+        btn_refrescar.clicked.connect(lambda: self.cargar_datos())
+        top_layout.addWidget(btn_refrescar)
+
+    def configurar_notificaciones_usuario(self):
+        """Abre el diálogo de configuración de notificaciones para el usuario seleccionado"""
+        seleccion = self.tabla.currentRow()
+        if seleccion < 0:
+            QMessageBox.warning(
+                self,
+                "⚠️ Aviso",
+                "Selecciona un usuario de la lista para configurar sus notificaciones."
+            )
+            return
+
+        usuario = self.tabla.item(seleccion, 3).text()  # Columna oculta con usuario
+
         try:
-            filtro_texto = filtro if filtro else None
-            usuarios = usuarios_service.obtener_usuarios(filtro_texto=filtro_texto, limit=1000)
+            from src.ventanas.dialogo_config_notificaciones import DialogoConfigNotificaciones
 
-            self.tabla.setRowCount(len(usuarios))
-
-            for i, user in enumerate(usuarios):
-                # Usuario
-                self.tabla.setItem(i, 0, QTableWidgetItem(user['usuario'] or ""))
-
-                # Rol
-                rol_text = user['rol'] or ""
-                rol_item = QTableWidgetItem(rol_text.capitalize())
-                if rol_text == "admin":
-                    rol_item.setForeground(Qt.blue)
-                self.tabla.setItem(i, 1, rol_item)
-
-                # Estado
-                activo = bool(user['activo'])
-                estado_text = "✅ Activo" if activo else "❌ Inactivo"
-                estado_item = QTableWidgetItem(estado_text)
-                if not activo:
-                    estado_item.setForeground(Qt.red)
-                self.tabla.setItem(i, 2, estado_item)
-
-                # ID oculto (usuario)
-                self.tabla.setItem(i, 3, QTableWidgetItem(user['usuario'] or ""))
+            dialogo = DialogoConfigNotificaciones(usuario, self)
+            dialogo.exec()
 
         except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al cargar usuarios:\n{e}")
+            QMessageBox.critical(
+                self,
+                "❌ Error",
+                f"Error al abrir configuración de notificaciones:\n{e}"
+            )
 
-    def buscar(self):
-        """Filtra la tabla según el texto de búsqueda"""
-        filtro = self.txt_buscar.text().strip()
-        self.cargar_usuarios(filtro)
+    def configurar_dimensiones(self):
+        """Configura las dimensiones específicas para esta ventana"""
+        self.resize(900, 550)
+        self.setMinimumSize(700, 450)
 
-    def seleccion_cambiada(self):
-        """Se activan/desactivan botones según la selección"""
-        hay_seleccion = len(self.tabla.selectedItems()) > 0
-        self.btn_editar.setEnabled(hay_seleccion)
-        self.btn_eliminar.setEnabled(hay_seleccion)
+    def configurar_tabla(self):
+        """Configura las columnas de la tabla de usuarios"""
+        self.tabla.setColumnCount(4)
+        self.tabla.setHorizontalHeaderLabels(["Usuario", "Rol", "Estado", "ID_Hidden"])
+        self.tabla.setColumnHidden(3, True)  # Columna oculta con usuario
 
-    def nuevo_usuario(self):
-        """Abre el diálogo para crear un nuevo usuario"""
-        dialogo = DialogoUsuario(self)
-        if dialogo.exec():
-            self.cargar_usuarios()
+        # Ajustar columnas
+        header = self.tabla.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Usuario
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Rol
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Estado
 
-    def editar_usuario(self):
-        """Abre el diálogo para editar el usuario seleccionado"""
+    def get_service(self):
+        """Retorna el service de usuarios"""
+        return usuarios_service
+
+    def crear_dialogo(self, item_id=None):
+        """Crea el diálogo para crear/editar un usuario"""
+        # En usuarios, el item_id es el nombre de usuario (string)
+        return DialogoUsuario(self, item_id)
+
+    def get_nombre_item(self, fila):
+        """Retorna el nombre de usuario para mostrar en mensajes"""
+        return self.tabla.item(fila, 0).text()  # Columna 0 = Usuario
+
+    def editar_item(self):
+        """Sobrescribe para usar columna 3 (usuario) en lugar de columna 0 (ID)"""
         seleccion = self.tabla.currentRow()
         if seleccion < 0:
             return
 
         usuario = self.tabla.item(seleccion, 3).text()  # Columna oculta con usuario
-        dialogo = DialogoUsuario(self, usuario)
+        dialogo = self.crear_dialogo(usuario)
         if dialogo.exec():
-            self.cargar_usuarios()
+            self.cargar_datos()
 
-    def eliminar_usuario(self):
-        """Elimina el usuario seleccionado"""
+    def eliminar_item(self):
+        """Sobrescribe para validar que no se elimine a sí mismo"""
         seleccion = self.tabla.currentRow()
         if seleccion < 0:
             return
@@ -373,6 +344,7 @@ class VentanaUsuarios(QWidget):
             )
             return
 
+        # Confirmar eliminación
         respuesta = QMessageBox.question(
             self,
             "⚠️ Confirmar eliminación",
@@ -387,6 +359,7 @@ class VentanaUsuarios(QWidget):
         if respuesta != QMessageBox.Yes:
             return
 
+        # Eliminar
         exito, mensaje = usuarios_service.eliminar_usuario(
             usuario=usuario,
             usuario_eliminador=usuario_actual or "admin"
@@ -397,4 +370,30 @@ class VentanaUsuarios(QWidget):
             return
 
         QMessageBox.information(self, "✅ Éxito", mensaje)
-        self.cargar_usuarios()
+        self.cargar_datos()
+
+    def cargar_datos_en_tabla(self, datos):
+        """Carga los usuarios en la tabla con formato especial"""
+        self.tabla.setRowCount(len(datos))
+
+        for i, user in enumerate(datos):
+            # Usuario
+            self.tabla.setItem(i, 0, QTableWidgetItem(user['usuario'] or ""))
+
+            # Rol (con color azul para admin)
+            rol_text = user['rol'] or ""
+            rol_item = QTableWidgetItem(rol_text.capitalize())
+            if rol_text == "admin":
+                rol_item.setForeground(Qt.blue)
+            self.tabla.setItem(i, 1, rol_item)
+
+            # Estado (con color rojo para inactivos)
+            activo = bool(user['activo'])
+            estado_text = "✅ Activo" if activo else "❌ Inactivo"
+            estado_item = QTableWidgetItem(estado_text)
+            if not activo:
+                estado_item.setForeground(Qt.red)
+            self.tabla.setItem(i, 2, estado_item)
+
+            # ID oculto (usuario)
+            self.tabla.setItem(i, 3, QTableWidgetItem(user['usuario'] or ""))

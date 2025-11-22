@@ -203,7 +203,8 @@ def crear_recepcion_material(
     articulos: List[Dict[str, Any]],
     almacen_nombre: str,
     albaran: Optional[str],
-    usuario: str
+    usuario: str,
+    proveedor_id: Optional[int] = None
 ) -> Tuple[bool, str, Optional[List[int]]]:
     """
     Crea entradas de material (recepciones).
@@ -214,6 +215,7 @@ def crear_recepcion_material(
         almacen_nombre: Nombre del almacén destino
         albaran: Número de albarán
         usuario: Usuario que realiza la recepción
+        proveedor_id: ID del proveedor (opcional)
 
     Returns:
         Tupla (exito, mensaje, lista_ids)
@@ -248,6 +250,7 @@ def crear_recepcion_material(
                 'tipo': 'ENTRADA',
                 'fecha': fecha,
                 'articulo_id': art['articulo_id'],
+                'origen_id': proveedor_id,  # ID del proveedor
                 'destino_id': almacen_id,
                 'cantidad': art['cantidad'],
                 'coste_unit': art.get('coste_unit'),

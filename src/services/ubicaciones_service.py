@@ -2,7 +2,7 @@
 Servicio de Ubicaciones - Lógica de negocio para gestión de ubicaciones del almacén
 """
 from typing import List, Dict, Any, Optional, Tuple
-import sqlite3
+import psycopg2
 from src.repos import ubicaciones_repo
 from src.core.logger import logger, log_operacion, log_validacion, log_error_bd
 
@@ -54,7 +54,7 @@ def crear_ubicacion(nombre: str, usuario: str = "admin") -> Tuple[bool, str, Opt
 
         return True, f"Ubicación '{nombre}' creada correctamente", ubicacion_id
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, f"Ya existe una ubicación con el nombre '{nombre}'", None
     except Exception as e:
         log_error_bd("ubicaciones", "crear_ubicacion", e)
@@ -84,7 +84,7 @@ def actualizar_ubicacion(ubicacion_id: int, nombre: str, usuario: str = "admin")
 
         return True, f"Ubicación '{nombre}' actualizada correctamente"
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, f"Ya existe otra ubicación con el nombre '{nombre}'"
     except Exception as e:
         log_error_bd("ubicaciones", "actualizar_ubicacion", e)
@@ -114,7 +114,7 @@ def eliminar_ubicacion(ubicacion_id: int, usuario: str = "admin") -> Tuple[bool,
 
         return True, f"Ubicación '{nombre}' eliminada correctamente"
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, "La ubicación tiene artículos asociados y no se puede eliminar"
     except Exception as e:
         log_error_bd("ubicaciones", "eliminar_ubicacion", e)

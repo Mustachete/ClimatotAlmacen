@@ -2,7 +2,7 @@
 Servicio de Proveedores - Lógica de negocio para gestión de proveedores
 """
 from typing import List, Dict, Any, Optional, Tuple
-import sqlite3
+import psycopg2
 import re
 from src.repos import proveedores_repo
 from src.core.logger import logger, log_operacion, log_validacion, log_error_bd
@@ -216,7 +216,7 @@ def crear_proveedor(
 
         return True, f"Proveedor '{nombre}' creado correctamente", proveedor_id
 
-    except sqlite3.IntegrityError as e:
+    except psycopg2.IntegrityError as e:
         mensaje = f"Ya existe un proveedor con el nombre '{nombre}'"
         log_error_bd("proveedores", "crear_proveedor", e)
         return False, mensaje, None
@@ -300,7 +300,7 @@ def actualizar_proveedor(
 
         return True, f"Proveedor '{nombre}' actualizado correctamente"
 
-    except sqlite3.IntegrityError as e:
+    except psycopg2.IntegrityError as e:
         mensaje = f"Ya existe otro proveedor con el nombre '{nombre}'"
         log_error_bd("proveedores", "actualizar_proveedor", e)
         return False, mensaje
@@ -350,7 +350,7 @@ def eliminar_proveedor(
 
         return True, f"Proveedor '{nombre}' eliminado correctamente"
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         # Por si acaso la verificación previa no funcionó
         return False, (
             f"El proveedor tiene artículos asociados.\n\n"

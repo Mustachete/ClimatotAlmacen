@@ -22,10 +22,11 @@ from PySide6.QtWidgets import (
 # ========================================
 # IMPORTAR FUNCIONES CENTRALIZADAS
 # ========================================
-from src.core.db_utils import DB_PATH, get_con
+from src.core.db_utils import get_con
 from src.core.idle_manager import get_idle_manager
 from src.core.logger import log_fin_sesion, log_inicio_sesion, logger
 from src.core.session_manager import session_manager
+from src.repos import sesiones_repo
 from src.ui.estilos import ESTILO_VENTANA
 from src.ventanas.consultas.ventana_consumos import VentanaConsumos
 from src.ventanas.consultas.ventana_historico import VentanaHistorico
@@ -68,11 +69,14 @@ class MainMenuWindow(QWidget):
 
         layout = QVBoxLayout(self)
 
-        # Encabezado
-        header = QLabel(f"👤 Bienvenido, {self.usuario}")
-        header.setAlignment(Qt.AlignCenter)
-        header.setStyleSheet("font-size: 18px; font-weight: bold; margin: 15px;")
-        layout.addWidget(header)
+        # Encabezado con notificaciones
+        self.crear_encabezado(layout)
+
+        # Generar notificaciones al iniciar sesión
+        self.generar_notificaciones_inicio()
+
+        # Actualizar contador
+        self.actualizar_contador_notificaciones()
 
         # Grid de botones
         grid = QGridLayout()
@@ -122,6 +126,13 @@ class MainMenuWindow(QWidget):
         # Cerrar sesión en session manager
         session_manager.logout()
 
+        # Cerrar ventanas secundarias si están abiertas
+        if hasattr(self, 'ventana_notif') and self.ventana_notif:
+            try:
+                self.ventana_notif.close()
+            except:
+                pass
+
         # Cerrar esta ventana
         self.close()
 
@@ -135,15 +146,7 @@ class MainMenuWindow(QWidget):
             t = int(time.time())
 
             try:
-                con = get_con()
-                cur = con.cursor()
-                cur.execute(
-                    "INSERT OR REPLACE INTO sesiones(usuario, inicio_utc, ultimo_ping_utc, hostname) VALUES(?,?,?,?)",
-                    (user_data["usuario"], t, t, hostname),
-                )
-                con.commit()
-                con.close()
-
+                sesiones_repo.registrar_sesion(user_data["usuario"], t, hostname)
                 log_inicio_sesion(user_data["usuario"], hostname)
 
             except Exception as e:
@@ -162,10 +165,144 @@ class MainMenuWindow(QWidget):
             QApplication.quit()
 
     def closeEvent(self, event):
-        """Cuando se cierra el menú principal, detener el idle manager"""
+        """Cuando se cierra el menú principal, detener el idle manager y crear backup si está configurado"""
+        # Crear backup automático al cerrar si está configurado
+        try:
+            from src.services.backup_config_service import obtener_configuracion
+            config = obtener_configuracion()
+
+            if config.backup_auto_cierre:
+                # Importar y ejecutar backup
+                import sys
+                from pathlib import Path
+                ROOT_DIR = Path(__file__).parent
+                sys.path.insert(0, str(ROOT_DIR))
+
+                from scripts.backup_db import crear_backup
+                crear_backup(mostrar_log=True, forzar=False)
+        except Exception as e:
+            # No bloquear el cierre si falla el backup
+            logger.warning(f"No se pudo crear backup automático al cerrar: {e}")
+
+        # Detener el idle manager
         idle_manager = get_idle_manager()
         idle_manager.stop()
         event.accept()
+
+    def crear_encabezado(self, layout):
+        """Crea el encabezado con bienvenida y notificaciones"""
+        # Contenedor para el encabezado
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(10, 10, 10, 10)
+
+        # Label de bienvenida
+        self.label_bienvenida = QLabel(f"👤 Bienvenido, {self.usuario}")
+        self.label_bienvenida.setStyleSheet("font-size: 18px; font-weight: bold;")
+        header_layout.addWidget(self.label_bienvenida)
+
+        # Botón de notificaciones (campana)
+        self.btn_notificaciones = QPushButton("🔔")
+        self.btn_notificaciones.setFixedSize(50, 50)
+        self.btn_notificaciones.setStyleSheet("""
+            QPushButton {
+                font-size: 24px;
+                background-color: #f1f5f9;
+                border: 2px solid #cbd5e1;
+                border-radius: 25px;
+            }
+            QPushButton:hover {
+                background-color: #e2e8f0;
+                border-color: #94a3b8;
+            }
+        """)
+        self.btn_notificaciones.clicked.connect(self.abrir_notificaciones)
+        self.btn_notificaciones.setToolTip("Ver notificaciones")
+        header_layout.addWidget(self.btn_notificaciones)
+
+        layout.addWidget(header_widget)
+
+    def actualizar_contador_notificaciones(self):
+        """Actualiza el contador de notificaciones en la bienvenida"""
+        try:
+            # Verificar que los widgets aún existen antes de actualizar
+            if not hasattr(self, 'label_bienvenida') or not hasattr(self, 'btn_notificaciones'):
+                return
+
+            # Verificar que los widgets no han sido destruidos
+            try:
+                _ = self.label_bienvenida.text()
+            except RuntimeError:
+                # Widget ya destruido, salir silenciosamente
+                return
+
+            from src.services import notificaciones_service
+
+            # Contar notificaciones
+            total = notificaciones_service.contar_notificaciones(self.usuario)
+
+            if total > 0:
+                # Actualizar texto de bienvenida
+                self.label_bienvenida.setText(
+                    f"👤 Bienvenido, {self.usuario}. "
+                    f"Tienes {total} notificación{'es' if total != 1 else ''} por revisar"
+                )
+
+                # Actualizar botón de campana con badge
+                self.btn_notificaciones.setText(f"🔔\n{total}")
+                self.btn_notificaciones.setStyleSheet("""
+                    QPushButton {
+                        font-size: 18px;
+                        font-weight: bold;
+                        background-color: #fef3c7;
+                        border: 2px solid #fbbf24;
+                        border-radius: 25px;
+                        color: #92400e;
+                    }
+                    QPushButton:hover {
+                        background-color: #fde68a;
+                        border-color: #f59e0b;
+                    }
+                """)
+            else:
+                self.label_bienvenida.setText(f"👤 Bienvenido, {self.usuario}")
+                self.btn_notificaciones.setText("🔔")
+
+        except RuntimeError:
+            # Widget ya destruido, salir silenciosamente
+            pass
+        except Exception as e:
+            from src.core.logger import logger
+            logger.exception(f"Error al actualizar notificaciones: {e}")
+
+    def generar_notificaciones_inicio(self):
+        """Genera notificaciones automáticamente al iniciar sesión"""
+        try:
+            from src.services import notificaciones_service
+
+            # Generar notificaciones en segundo plano
+            notificaciones_service.generar_notificaciones_usuario(self.usuario)
+
+        except Exception as e:
+            from src.core.logger import logger
+            logger.exception(f"Error al generar notificaciones de inicio: {e}")
+
+    def abrir_notificaciones(self):
+        """Abre la ventana de notificaciones"""
+        try:
+            from src.ventanas.ventana_notificaciones import VentanaNotificaciones
+
+            self.ventana_notif = VentanaNotificaciones()
+            self.ventana_notif.show()
+
+            # Cuando se cierre la ventana, actualizar el contador
+            # Usamos una lambda con try-catch para evitar errores si MainMenuWindow ya se destruyó
+            self.ventana_notif.destroyed.connect(
+                lambda: self.actualizar_contador_notificaciones() if hasattr(self, 'label_bienvenida') else None
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "❌ Error", f"Error al abrir notificaciones:\n{e}")
 
     def abrir_recepcion(self):
         """Abrir ventana de recepción (maximizada)"""
@@ -425,8 +562,8 @@ class MenuAjustes(QWidget):
         # Botones con más espaciado
         botones = [
             ("🔑 Cambiar Mi Contraseña", self.cambiar_password),
-            ("🎨 Preferencias de Visualización", self.no_func),
-            ("🔔 Notificaciones", self.no_func),
+            ("🎨 Preferencias de Visualización", self.abrir_preferencias_visualizacion),
+            ("🔔 Notificaciones", self.abrir_notificaciones),
         ]
 
         for i, (texto, func) in enumerate(botones):
@@ -450,6 +587,92 @@ class MenuAjustes(QWidget):
         """Abrir diálogo para cambiar contraseña propia"""
         dialogo = DialogoCambiarPassword(self)
         dialogo.exec()
+
+    def abrir_preferencias_visualizacion(self):
+        """Muestra preferencias de visualización"""
+        mensaje = """
+<h3>🎨 Preferencias de Visualización</h3>
+
+<h4>Configuraciones Disponibles</h4>
+
+<p><b>Tamaños de Fuente:</b> Los tamaños de fuente están definidos en los estilos del sistema.</p>
+
+<p><b>Colores y Tema:</b> El sistema utiliza un esquema de colores definido en src/ui/estilos.py</p>
+
+<h4>Personalización</h4>
+<p>Para personalizar la apariencia del sistema:</p>
+<ul>
+<li>Edite el archivo <code>src/ui/estilos.py</code></li>
+<li>Modifique las constantes de color y estilo</li>
+<li>Reinicie la aplicación para aplicar los cambios</li>
+</ul>
+
+<h4>Ajustes de Ventana</h4>
+<ul>
+<li>Tamaños de ventana: Se ajustan automáticamente o pueden redimensionarse manualmente</li>
+<li>Posición: Las ventanas recuerdan su última posición</li>
+</ul>
+
+<h4>Próximas Mejoras</h4>
+<p>En futuras versiones se añadirán:</p>
+<ul>
+<li>Selector de temas (claro/oscuro)</li>
+<li>Ajuste de tamaño de fuente desde la interfaz</li>
+<li>Personalización de colores</li>
+<li>Configuración de idioma</li>
+</ul>
+        """
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("🎨 Preferencias de Visualización")
+        msg_box.setTextFormat(Qt.RichText)
+        msg_box.setText(mensaje)
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.exec()
+
+    def abrir_notificaciones(self):
+        """Muestra configuración de notificaciones"""
+        mensaje = """
+<h3>🔔 Notificaciones</h3>
+
+<h4>Sistema de Alertas</h4>
+<p>El sistema incluye notificaciones para eventos importantes:</p>
+
+<h4>Alertas Implementadas</h4>
+<ul>
+<li><b>Stock bajo:</b> Cuando un artículo alcanza el stock mínimo</li>
+<li><b>Stock crítico:</b> Cuando el stock es cero o negativo</li>
+<li><b>Errores de operación:</b> Mensajes de error en operaciones</li>
+<li><b>Confirmaciones:</b> Confirmación de operaciones exitosas</li>
+</ul>
+
+<h4>Visualización</h4>
+<ul>
+<li>Iconos de estado en las tablas (🔴 crítico, 🟡 bajo, 🟢 normal)</li>
+<li>Mensajes emergentes (QMessageBox)</li>
+<li>Colores de fondo en filas de tablas</li>
+</ul>
+
+<h4>Próximas Mejoras</h4>
+<p>En desarrollo:</p>
+<ul>
+<li>Panel de notificaciones centralizado</li>
+<li>Notificaciones por email</li>
+<li>Alertas configurables por usuario</li>
+<li>Historial de notificaciones</li>
+<li>Notificaciones de escritorio del sistema operativo</li>
+</ul>
+
+<h4>Configuración Actual</h4>
+<p>Las notificaciones están activadas por defecto y no se pueden desactivar para garantizar que el usuario esté informado de eventos críticos.</p>
+        """
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("🔔 Notificaciones")
+        msg_box.setTextFormat(Qt.RichText)
+        msg_box.setText(mensaje)
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.exec()
 
     def no_func(self):
         QMessageBox.information(
@@ -491,8 +714,8 @@ class MenuConfiguracion(QWidget):
             ("👥 Gestión de Usuarios", self.abrir_usuarios),
             ("🗄️ Gestión de Base de Datos", self.abrir_gestion_bd),
             ("💾 Backup y Restauración", self.abrir_backup),
-            ("📊 Estadísticas del Sistema", self.no_func),
-            ("🔒 Seguridad y Permisos", self.no_func),
+            ("📊 Estadísticas del Sistema", self.abrir_estadisticas_sistema),
+            ("🔒 Seguridad y Permisos", self.abrir_seguridad_permisos),
         ]
 
         for i, (texto, func) in enumerate(botones):
@@ -529,6 +752,167 @@ class MenuConfiguracion(QWidget):
         dialogo = DialogoBackupRestauracion(self)
         dialogo.exec()
 
+    def abrir_estadisticas_sistema(self):
+        """Muestra estadísticas generales del sistema"""
+        try:
+            from src.core.db_utils import fetch_all, ENGINE
+            from pathlib import Path
+
+            # Obtener estadísticas de la base de datos
+            stats = {}
+
+            # Contar artículos
+            resultado = fetch_all("SELECT COUNT(*) as total FROM articulos WHERE activo = 1")
+            stats['articulos'] = resultado[0]['total'] if resultado else 0
+
+            # Contar movimientos del último mes
+            resultado = fetch_all("""
+                SELECT COUNT(*) as total
+                FROM movimientos
+                WHERE fecha >= date('now', '-30 days')
+            """)
+            stats['movimientos_mes'] = resultado[0]['total'] if resultado else 0
+
+            # Contar OTs del último mes
+            resultado = fetch_all("""
+                SELECT COUNT(DISTINCT ot) as total
+                FROM movimientos
+                WHERE ot IS NOT NULL AND ot != ''
+                AND fecha >= date('now', '-30 days')
+            """)
+            stats['ots_mes'] = resultado[0]['total'] if resultado else 0
+
+            # Contar usuarios
+            resultado = fetch_all("SELECT COUNT(*) as total FROM usuarios WHERE activo = 1")
+            stats['usuarios'] = resultado[0]['total'] if resultado else 0
+
+            # Contar furgonetas (SQLite: tabla 'furgonetas' si existe, PostgreSQL: desde 'almacenes')
+            try:
+                resultado = fetch_all("SELECT COUNT(*) as total FROM furgonetas WHERE activa = 1")
+                stats['furgonetas'] = resultado[0]['total'] if resultado else 0
+            except:
+                # Si falla, intentar contar desde almacenes
+                resultado = fetch_all("SELECT COUNT(*) as total FROM almacenes WHERE tipo = 'furgoneta'")
+                stats['furgonetas'] = resultado[0]['total'] if resultado else 0
+
+            # Valor total del stock (usando vista vw_stock_total)
+            resultado = fetch_all("""
+                SELECT SUM(COALESCE(s.stock_total, 0) * COALESCE(a.coste, 0)) as total
+                FROM articulos a
+                LEFT JOIN vw_stock_total s ON a.id = s.articulo_id
+                WHERE a.activo = 1
+            """)
+            valor_stock = resultado[0]['total'] if resultado and resultado[0]['total'] else 0
+
+            # Artículos con stock bajo (usando vista vw_stock_total y min_alerta)
+            resultado = fetch_all("""
+                SELECT COUNT(*) as total
+                FROM articulos a
+                LEFT JOIN vw_stock_total s ON a.id = s.articulo_id
+                WHERE a.activo = 1
+                AND COALESCE(s.stock_total, 0) <= a.min_alerta
+                AND a.min_alerta > 0
+            """)
+            stats['stock_bajo'] = resultado[0]['total'] if resultado else 0
+
+            # Tamaño de la base de datos
+            if ENGINE == 'sqlite':
+                from src.core.db_utils import DB_PATH
+                db_path = Path(DB_PATH)
+                if db_path.exists():
+                    db_size = db_path.stat().st_size / (1024 * 1024)  # MB
+                    stats['db_size'] = f"{db_size:.2f} MB"
+                else:
+                    stats['db_size'] = "N/A"
+            else:
+                # PostgreSQL - obtener tamaño de la BD
+                try:
+                    resultado = fetch_all("SELECT pg_database_size(current_database()) as size")
+                    db_size = resultado[0]['size'] / (1024 * 1024) if resultado else 0
+                    stats['db_size'] = f"{db_size:.2f} MB"
+                except:
+                    stats['db_size'] = "N/A"
+
+            # Mostrar diálogo con estadísticas
+            mensaje = f"""
+<h3>📊 Estadísticas del Sistema</h3>
+
+<h4>📦 Inventario</h4>
+<ul>
+<li><b>Artículos activos:</b> {stats['articulos']}</li>
+<li><b>Valor total del stock:</b> {valor_stock:.2f}€</li>
+<li><b>Artículos con stock bajo:</b> {stats['stock_bajo']}</li>
+</ul>
+
+<h4>📋 Actividad (últimos 30 días)</h4>
+<ul>
+<li><b>Movimientos:</b> {stats['movimientos_mes']}</li>
+<li><b>OTs diferentes:</b> {stats['ots_mes']}</li>
+</ul>
+
+<h4>👥 Usuarios y Recursos</h4>
+<ul>
+<li><b>Usuarios activos:</b> {stats['usuarios']}</li>
+<li><b>Furgonetas activas:</b> {stats['furgonetas']}</li>
+</ul>
+
+<h4>💾 Base de Datos</h4>
+<ul>
+<li><b>Tamaño:</b> {stats['db_size']}</li>
+</ul>
+            """
+
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("📊 Estadísticas del Sistema")
+            msg_box.setTextFormat(Qt.RichText)
+            msg_box.setText(mensaje)
+            msg_box.setIcon(QMessageBox.Information)
+            msg_box.exec()
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "❌ Error",
+                f"Error al obtener estadísticas:\n{e}"
+            )
+
+    def abrir_seguridad_permisos(self):
+        """Muestra información sobre seguridad y permisos"""
+        mensaje = """
+<h3>🔒 Seguridad y Permisos</h3>
+
+<h4>Sistema de Usuarios</h4>
+<p>El sistema cuenta con gestión de usuarios con contraseñas cifradas.</p>
+
+<h4>Niveles de Acceso</h4>
+<ul>
+<li><b>Administrador:</b> Acceso completo al sistema, incluyendo configuración y gestión de usuarios</li>
+<li><b>Usuario estándar:</b> Acceso a operaciones del almacén y consultas</li>
+</ul>
+
+<h4>Auditoría</h4>
+<p>Todas las operaciones quedan registradas en el historial con:</p>
+<ul>
+<li>Usuario que realizó la operación</li>
+<li>Fecha y hora</li>
+<li>Tipo de operación</li>
+<li>Detalles de la operación</li>
+</ul>
+
+<h4>Backup y Recuperación</h4>
+<p>El sistema incluye funcionalidades de backup y restauración de la base de datos para proteger los datos.</p>
+
+<h4>Configuración Adicional</h4>
+<p>Para configuraciones avanzadas de permisos por rol o restricciones específicas, contacte con el administrador del sistema.</p>
+        """
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("🔒 Seguridad y Permisos")
+        msg_box.setTextFormat(Qt.RichText)
+        msg_box.setText(mensaje)
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.exec()
+
     def no_func(self):
         QMessageBox.information(
             self,
@@ -554,15 +938,7 @@ def main():
         t = int(time.time())
 
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute(
-                "INSERT OR REPLACE INTO sesiones(usuario, inicio_utc, ultimo_ping_utc, hostname) VALUES(?,?,?,?)",
-                (user_data["usuario"], t, t, hostname),
-            )
-            con.commit()
-            con.close()
-
+            sesiones_repo.registrar_sesion(user_data["usuario"], t, hostname)
             log_inicio_sesion(user_data["usuario"], hostname)
 
         except Exception as e:

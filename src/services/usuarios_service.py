@@ -2,7 +2,7 @@
 Servicio de Usuarios - Lógica de negocio para gestión de usuarios y autenticación
 """
 from typing import List, Dict, Any, Optional, Tuple
-import sqlite3
+import psycopg2
 import re
 from src.repos import usuarios_repo
 from src.core.db_utils import hash_pwd
@@ -141,7 +141,7 @@ def crear_usuario(usuario: str, password: str, rol: str = "almacen",
 
         return True, f"Usuario '{usuario}' creado correctamente"
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, f"Ya existe un usuario con el nombre '{usuario}'"
     except Exception as e:
         log_error_bd("usuarios", "crear_usuario", e)
@@ -220,7 +220,7 @@ def eliminar_usuario(usuario: str, usuario_eliminador: str = "admin") -> Tuple[b
 
         return True, f"Usuario '{usuario}' eliminado correctamente"
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, "No se puede eliminar el usuario debido a referencias en el sistema"
     except Exception as e:
         log_error_bd("usuarios", "eliminar_usuario", e)
