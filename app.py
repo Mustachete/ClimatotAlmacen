@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
 # ========================================
 # IMPORTAR FUNCIONES CENTRALIZADAS
 # ========================================
-from src.core.db_utils import get_con
 from src.core.idle_manager import get_idle_manager
 from src.core.logger import log_fin_sesion, log_inicio_sesion, logger
 from src.core.session_manager import session_manager
@@ -834,69 +833,18 @@ class MenuConfiguracion(QWidget):
     def abrir_estadisticas_sistema(self):
         """Muestra estadísticas generales del sistema"""
         try:
-            from src.core.db_utils import fetch_all
+            from src.repos import sistema_repo
 
-            # Obtener estadísticas de la base de datos
-            stats = {}
+            # Obtener estadísticas desde el repositorio
+            stats = sistema_repo.obtener_estadisticas_sistema()
 
-            # Contar artículos
-            resultado = fetch_all("SELECT COUNT(*) as total FROM articulos WHERE activo = 1")
-            stats['articulos'] = resultado[0]['total'] if resultado else 0
-
-            # Contar movimientos del último mes (PostgreSQL)
-            resultado = fetch_all("""
-                SELECT COUNT(*) as total
-                FROM movimientos
-                WHERE fecha >= CURRENT_DATE - INTERVAL '30 days'
-            """)
-            stats['movimientos_mes'] = resultado[0]['total'] if resultado else 0
-
-            # Contar OTs del último mes (PostgreSQL)
-            resultado = fetch_all("""
-                SELECT COUNT(DISTINCT ot) as total
-                FROM movimientos
-                WHERE ot IS NOT NULL AND ot != ''
-                AND fecha >= CURRENT_DATE - INTERVAL '30 days'
-            """)
-            stats['ots_mes'] = resultado[0]['total'] if resultado else 0
-
-            # Contar usuarios
-            resultado = fetch_all("SELECT COUNT(*) as total FROM usuarios WHERE activo = 1")
-            stats['usuarios'] = resultado[0]['total'] if resultado else 0
-
-            # Contar furgonetas (PostgreSQL: desde 'almacenes')
-            resultado = fetch_all("SELECT COUNT(*) as total FROM almacenes WHERE tipo = 'furgoneta'")
-            stats['furgonetas'] = resultado[0]['total'] if resultado else 0
-
-            # Valor total del stock (usando vista vw_stock_total)
-            resultado = fetch_all("""
-                SELECT SUM(COALESCE(s.stock_total, 0) * COALESCE(a.coste, 0)) as total
-                FROM articulos a
-                LEFT JOIN vw_stock_total s ON a.id = s.articulo_id
-                WHERE a.activo = 1
-            """)
-            valor_stock = resultado[0]['total'] if resultado and resultado[0]['total'] else 0
-            # Convertir Decimal a float para formato
-            valor_stock = float(valor_stock) if valor_stock else 0.0
-
-            # Artículos con stock bajo (usando vista vw_stock_total y min_alerta)
-            resultado = fetch_all("""
-                SELECT COUNT(*) as total
-                FROM articulos a
-                LEFT JOIN vw_stock_total s ON a.id = s.articulo_id
-                WHERE a.activo = 1
-                AND COALESCE(s.stock_total, 0) <= a.min_alerta
-                AND a.min_alerta > 0
-            """)
-            stats['stock_bajo'] = resultado[0]['total'] if resultado else 0
-
-            # Tamaño de la base de datos PostgreSQL
-            try:
-                resultado = fetch_all("SELECT pg_database_size(current_database()) as size")
-                db_size = resultado[0]['size'] / (1024 * 1024) if resultado else 0
-                stats['db_size'] = f"{db_size:.2f} MB"
-            except:
-                stats['db_size'] = "N/A"
+            if not stats:
+                QMessageBox.critical(
+                    self,
+                    "❌ Error",
+                    "Error al obtener estadísticas del sistema"
+                )
+                return
 
             # Mostrar diálogo con estadísticas
             mensaje = f"""
@@ -905,7 +853,7 @@ class MenuConfiguracion(QWidget):
 <h4>📦 Inventario</h4>
 <ul>
 <li><b>Artículos activos:</b> {stats['articulos']}</li>
-<li><b>Valor total del stock:</b> {valor_stock:.2f}€</li>
+<li><b>Valor total del stock:</b> {stats['valor_stock']:.2f}€</li>
 <li><b>Artículos con stock bajo:</b> {stats['stock_bajo']}</li>
 </ul>
 

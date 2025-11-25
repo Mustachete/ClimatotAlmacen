@@ -76,6 +76,86 @@ def verificar_integridad_bd() -> Dict[str, Any]:
     }
 
 
+def obtener_estadisticas_sistema() -> Dict[str, Any]:
+    """
+    Obtiene estadísticas completas del sistema.
+
+    Returns:
+        dict: Estadísticas completas (artículos, movimientos, usuarios, stock, etc.)
+              o None si hay error
+    """
+    try:
+        con = get_con()
+        try:
+            cur = con.cursor()
+            stats = {}
+
+            # Contar artículos activos
+            cur.execute("SELECT COUNT(*) as total FROM articulos WHERE activo = 1")
+            stats['articulos'] = cur.fetchone()[0]
+
+            # Contar movimientos del último mes (PostgreSQL)
+            cur.execute("""
+                SELECT COUNT(*) as total
+                FROM movimientos
+                WHERE fecha >= CURRENT_DATE - INTERVAL '30 days'
+            """)
+            stats['movimientos_mes'] = cur.fetchone()[0]
+
+            # Contar OTs del último mes (PostgreSQL)
+            cur.execute("""
+                SELECT COUNT(DISTINCT ot) as total
+                FROM movimientos
+                WHERE ot IS NOT NULL AND ot != ''
+                AND fecha >= CURRENT_DATE - INTERVAL '30 days'
+            """)
+            stats['ots_mes'] = cur.fetchone()[0]
+
+            # Contar usuarios activos
+            cur.execute("SELECT COUNT(*) as total FROM usuarios WHERE activo = 1")
+            stats['usuarios'] = cur.fetchone()[0]
+
+            # Contar furgonetas (PostgreSQL: desde 'almacenes')
+            cur.execute("SELECT COUNT(*) as total FROM almacenes WHERE tipo = 'furgoneta'")
+            stats['furgonetas'] = cur.fetchone()[0]
+
+            # Valor total del stock (usando vista vw_stock_total)
+            cur.execute("""
+                SELECT SUM(COALESCE(s.stock_total, 0) * COALESCE(a.coste, 0)) as total
+                FROM articulos a
+                LEFT JOIN vw_stock_total s ON a.id = s.articulo_id
+                WHERE a.activo = 1
+            """)
+            result = cur.fetchone()[0]
+            stats['valor_stock'] = float(result) if result else 0.0
+
+            # Artículos con stock bajo (usando vista vw_stock_total y min_alerta)
+            cur.execute("""
+                SELECT COUNT(*) as total
+                FROM articulos a
+                LEFT JOIN vw_stock_total s ON a.id = s.articulo_id
+                WHERE a.activo = 1
+                AND COALESCE(s.stock_total, 0) <= a.min_alerta
+                AND a.min_alerta > 0
+            """)
+            stats['stock_bajo'] = cur.fetchone()[0]
+
+            # Tamaño de la base de datos PostgreSQL
+            try:
+                cur.execute("SELECT pg_database_size(current_database()) as size")
+                db_size = cur.fetchone()[0] / (1024 * 1024)
+                stats['db_size'] = f"{db_size:.2f} MB"
+            except:
+                stats['db_size'] = "N/A"
+
+            return stats
+        finally:
+            con.close()
+    except Exception as e:
+        logger.exception(f"Error al obtener estadísticas del sistema: {e}")
+        return None
+
+
 def optimizar_bd() -> bool:
     """
     Optimiza la base de datos PostgreSQL ejecutando VACUUM ANALYZE.
