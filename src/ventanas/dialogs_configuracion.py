@@ -17,7 +17,6 @@ import os
 from src.ui.estilos import ESTILO_DIALOGO
 from src.core.logger import logger
 from src.repos import sistema_repo
-from src.core.db_utils import get_con
 
 
 class DialogoGestionBD(QDialog):
@@ -38,8 +37,8 @@ class DialogoGestionBD(QDialog):
         layout.addWidget(titulo)
 
         # Info de la BD (PostgreSQL)
-        try:
-            conn = get_con()
+        exito, _ = sistema_repo.verificar_conexion()
+        if exito:
             info_text = f"""
 🐘 Motor: PostgreSQL
 🌐 Host: {os.getenv('DB_HOST', 'localhost')}
@@ -47,9 +46,8 @@ class DialogoGestionBD(QDialog):
 👤 Usuario: {os.getenv('DB_USER', 'postgres')}
 ✅ Estado: Conectado
             """
-            conn.close()
-        except Exception as e:
-            info_text = f"❌ Error de conexión: {e}"
+        else:
+            info_text = "❌ Error de conexión a PostgreSQL"
 
         lbl_info = QLabel(info_text)
         lbl_info.setStyleSheet(
@@ -91,57 +89,36 @@ class DialogoGestionBD(QDialog):
 
     def verificar_conexion(self):
         """Verifica la conexión a PostgreSQL"""
-        try:
-            conn = get_con()
-            cursor = conn.cursor()
-            cursor.execute("SELECT version();")
-            version = cursor.fetchone()[0]
-            cursor.close()
-            conn.close()
+        exito, mensaje = sistema_repo.verificar_conexion()
 
+        if exito:
             QMessageBox.information(
                 self,
                 "✅ Conexión OK",
-                f"Conexión exitosa a PostgreSQL.\n\n{version}"
+                f"Conexión exitosa a PostgreSQL.\n\n{mensaje}"
             )
-        except Exception as e:
-            logger.exception(f"Error al verificar conexión: {e}")
-            QMessageBox.critical(self, "❌ Error de Conexión", f"Error:\n{e}")
+        else:
+            QMessageBox.critical(self, "❌ Error de Conexión", f"Error:\n{mensaje}")
 
     def ver_estadisticas(self):
         """Muestra estadísticas de la base de datos"""
-        try:
-            conn = get_con()
-            cursor = conn.cursor()
+        stats = sistema_repo.obtener_estadisticas_bd()
 
-            # Obtener tamaño de la BD
-            cursor.execute("""
-                SELECT pg_size_pretty(pg_database_size(current_database())) as size
-            """)
-            size = cursor.fetchone()[0]
-
-            # Obtener número de tablas
-            cursor.execute("""
-                SELECT COUNT(*) FROM information_schema.tables
-                WHERE table_schema = 'public'
-            """)
-            num_tablas = cursor.fetchone()[0]
-
-            cursor.close()
-            conn.close()
-
+        if stats:
             info = f"""
 📊 Estadísticas de la Base de Datos
 
-💾 Tamaño total: {size}
-📋 Número de tablas: {num_tablas}
+💾 Tamaño total: {stats['size']}
+📋 Número de tablas: {stats['num_tablas']}
 🗄️ Motor: PostgreSQL
             """
-
             QMessageBox.information(self, "📊 Estadísticas", info)
-        except Exception as e:
-            logger.exception(f"Error al obtener estadísticas: {e}")
-            QMessageBox.critical(self, "❌ Error", f"Error al obtener estadísticas:\n{e}")
+        else:
+            QMessageBox.critical(
+                self,
+                "❌ Error",
+                "Error al obtener estadísticas de la base de datos"
+            )
 
     def optimizar_bd(self):
         """Optimiza la base de datos con VACUUM"""
