@@ -43,7 +43,8 @@ def asignar_furgoneta_a_operario(
     operario_id: int,
     furgoneta_id: int,
     fecha: str,
-    turno: str = 'completo'
+    turno: str = 'completo',
+    forzar: bool = False
 ) -> bool:
     """
     Asigna una furgoneta a un operario para una fecha y turno específicos.
@@ -53,11 +54,12 @@ def asignar_furgoneta_a_operario(
         furgoneta_id: ID de la furgoneta (almacen con tipo='furgoneta')
         fecha: Fecha en formato YYYY-MM-DD
         turno: 'manana', 'tarde' o 'completo' (default)
+        forzar: Si True, permite sobrescribir "día completo" con otro "día completo"
 
     Returns:
         True si se asignó correctamente
     """
-    return asignaciones_repo.asignar_furgoneta(operario_id, fecha, furgoneta_id, turno)
+    return asignaciones_repo.asignar_furgoneta(operario_id, fecha, furgoneta_id, turno, forzar)
 
 
 def obtener_furgoneta_operario(

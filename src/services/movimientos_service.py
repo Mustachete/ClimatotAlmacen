@@ -519,6 +519,9 @@ def obtener_movimientos_filtrados(
     articulo_id: Optional[int] = None,
     almacen_id: Optional[int] = None,
     operario_id: Optional[int] = None,
+    articulo_texto: Optional[str] = None,
+    ot: Optional[str] = None,
+    responsable: Optional[str] = None,
     limit: int = 1000
 ) -> List[Dict[str, Any]]:
     """
@@ -531,6 +534,9 @@ def obtener_movimientos_filtrados(
         articulo_id: ID del artículo
         almacen_id: ID del almacén
         operario_id: ID del operario
+        articulo_texto: Texto para buscar en artículo (nombre, EAN, ref)
+        ot: Número de orden de trabajo
+        responsable: Nombre del responsable
         limit: Límite de resultados
 
     Returns:
@@ -544,6 +550,9 @@ def obtener_movimientos_filtrados(
             articulo_id=articulo_id,
             almacen_id=almacen_id,
             operario_id=operario_id,
+            articulo_texto=articulo_texto,
+            ot=ot,
+            responsable=responsable,
             limit=limit
         )
     except Exception as e:

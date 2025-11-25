@@ -262,8 +262,8 @@ class VentanaMaestroBase(QWidget, metaclass=QABCMeta):
                             # Si no tiene parámetros obligatorios, es candidato
                             if len(required_params) == 0:
                                 metodos_candidatos.append((attr_name, attr))
-                        except:
-                            # Si falla la inspección, intentar de todos modos
+                        except (ValueError, TypeError):
+                            # Si falla la inspección debido a problemas con la firma, intentar de todos modos
                             pass
 
             # Priorizar métodos plurales (obtener_proveedores sobre obtener_proveedor)

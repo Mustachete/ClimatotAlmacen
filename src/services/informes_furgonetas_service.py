@@ -61,7 +61,7 @@ def calcular_stock_inicial_furgoneta(furgoneta_id: int, fecha_inicio_semana: str
         """
         entradas = fetch_all(query_entradas, (furgoneta_id, fecha_limite))
         for row in entradas:
-            stock[row['articulo_id']] += row['total']
+            stock[row['articulo_id']] += float(row['total'])  # Convertir Decimal a float
 
         # SALIDAS: origen_id = furgoneta (resta al stock)
         query_salidas = """
@@ -72,7 +72,7 @@ def calcular_stock_inicial_furgoneta(furgoneta_id: int, fecha_inicio_semana: str
         """
         salidas = fetch_all(query_salidas, (furgoneta_id, fecha_limite))
         for row in salidas:
-            stock[row['articulo_id']] -= row['total']
+            stock[row['articulo_id']] -= float(row['total'])  # Convertir Decimal a float
 
         return dict(stock)
 
@@ -233,15 +233,18 @@ def generar_datos_informe(
     try:
         # 1. Validar lunes
         lunes = calcular_lunes_de_semana(fecha_lunes)
+        logger.info(f"Generando informe para furgoneta_id={furgoneta_id}, semana={lunes}")
 
         # 2. Obtener datos de la furgoneta
         furgoneta_query = "SELECT id, nombre FROM almacenes WHERE id = %s AND tipo = 'furgoneta'"
         furgoneta = fetch_one(furgoneta_query, (furgoneta_id,))
 
         if not furgoneta:
-            return False, "Furgoneta no encontrada", None
+            logger.warning(f"Furgoneta con id={furgoneta_id} no encontrada o no es de tipo 'furgoneta'")
+            return False, "Furgoneta no encontrada o no es válida", None
 
         furgoneta_nombre = furgoneta['nombre']
+        logger.info(f"Furgoneta encontrada: {furgoneta_nombre} (ID: {furgoneta_id})")
 
         # 3. Determinar rango de fechas (L-V o L-S si hay movimientos el sábado)
         viernes = datetime.strptime(lunes, "%Y-%m-%d") + timedelta(days=4)
@@ -255,6 +258,7 @@ def generar_datos_informe(
 
         incluir_sabado = movs_sabado and movs_sabado['count'] > 0
         fecha_fin = sabado.strftime("%Y-%m-%d") if incluir_sabado else viernes.strftime("%Y-%m-%d")
+        logger.info(f"Rango de fechas: {lunes} a {fecha_fin} (incluye sábado: {incluir_sabado})")
 
         # 4. Generar lista de días
         dias_semana = []
@@ -295,7 +299,7 @@ def generar_datos_informe(
             art_id = mov['articulo_id']
             fecha = mov['fecha']
             tipo = mov['tipo_movimiento']
-            cantidad = mov['cantidad']
+            cantidad = float(mov['cantidad'])  # Convertir Decimal a float
 
             articulos_dict[art_id]['familia'] = mov['familia_nombre']
             articulos_dict[art_id]['articulo_nombre'] = mov['articulo_nombre']

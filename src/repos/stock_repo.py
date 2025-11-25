@@ -8,7 +8,7 @@ from src.core.db_utils import fetch_all
 def get_stock_completo(
     filtro_texto: Optional[str] = None,
     familia: Optional[str] = None,
-    almacen: Optional[str] = None,
+    almacen: Optional[int] = None,
     solo_con_stock: bool = False,
     solo_alertas: bool = False
 ) -> List[Dict[str, Any]]:
@@ -18,7 +18,7 @@ def get_stock_completo(
     Args:
         filtro_texto: Búsqueda por nombre, EAN o referencia
         familia: Filtro por nombre de familia
-        almacen: Filtro por nombre de almacén
+        almacen: Filtro por ID de almacén
         solo_con_stock: Si True, solo artículos con stock > 0
         solo_alertas: Si True, solo artículos con stock < mínimo
 
@@ -46,7 +46,7 @@ def get_stock_completo(
 
     # Filtro de búsqueda
     if filtro_texto:
-        query += " AND (a.nombre LIKE %s OR a.ean LIKE %s OR a.ref_proveedor LIKE %s)"
+        query += " AND (a.nombre ILIKE %s OR a.ean ILIKE %s OR a.ref_proveedor ILIKE %s)"
         params.extend([f"%{filtro_texto}%"] * 3)
 
     # Filtro de familia
@@ -54,9 +54,9 @@ def get_stock_completo(
         query += " AND f.nombre = %s"
         params.append(familia)
 
-    # Filtro de almacén
+    # Filtro de almacén (por ID, no por nombre)
     if almacen:
-        query += " AND alm.nombre = %s"
+        query += " AND alm.id = %s"
         params.append(almacen)
 
     query += " GROUP BY a.id, a.nombre, a.ean, f.nombre, alm.nombre, a.min_alerta, a.u_medida"

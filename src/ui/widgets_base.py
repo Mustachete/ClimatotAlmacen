@@ -102,6 +102,11 @@ class TablaEstandar(QTableWidget):
         self.setAlternatingRowColors(True)
         self.setSortingEnabled(False)  # Se puede habilitar después si se necesita
 
+        # Configurar header vertical (números de fila) con ancho adecuado
+        vertical_header = self.verticalHeader()
+        vertical_header.setDefaultSectionSize(30)  # Altura de fila
+        vertical_header.setMinimumWidth(40)  # Ancho mínimo para ver bien los números
+
         # Configurar header horizontal para que sea responsive
         if columnas > 0:
             header = self.horizontalHeader()

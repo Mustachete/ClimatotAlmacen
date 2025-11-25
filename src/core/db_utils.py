@@ -4,6 +4,7 @@
 import sys
 import hashlib
 import configparser
+import bcrypt
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -154,6 +155,9 @@ def execute_query(query: str, params: tuple = ()) -> int:
     Returns:
         Para INSERT con RETURNING: el ID del registro insertado
         Para UPDATE/DELETE: número de filas afectadas
+
+    Raises:
+        psycopg2.Error: Si hay error de base de datos
     """
     conn = get_connection()
     try:
@@ -167,15 +171,28 @@ def execute_query(query: str, params: tuple = ()) -> int:
                     result = cur.fetchone()
                     if result:
                         return result[0]
-                except:
+                except psycopg2.ProgrammingError:
+                    # No hay RETURNING, no pasa nada
                     pass
                 return 0
             else:
                 # UPDATE/DELETE: devolver rowcount
                 return cur.rowcount
+    except psycopg2.IntegrityError as e:
+        conn.rollback()
+        log_error(f"Error de integridad: {e}\n{query}\nParams: {params}")
+        raise
+    except psycopg2.OperationalError as e:
+        conn.rollback()
+        log_error(f"Error operacional BD: {e}\n{query}\nParams: {params}")
+        raise
+    except psycopg2.Error as e:
+        conn.rollback()
+        log_error(f"Error de BD: {e}\n{query}\nParams: {params}")
+        raise
     except Exception as e:
         conn.rollback()
-        log_error(f"Error ejecutando query: {e}\n{query}\nParams: {params}")
+        log_error(f"Error inesperado ejecutando query: {e}\n{query}\nParams: {params}")
         raise
     finally:
         release_connection(conn)
@@ -250,8 +267,10 @@ def log_error(message: str) -> None:
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             f.write(f"[{timestamp}] [ERROR] {message}\n")
-    except Exception:
-        pass  # evitar bucles si hay fallo en logging
+    except (IOError, OSError):
+        # Evitar bucles si hay fallo en logging
+        # No podemos hacer nada si no podemos escribir al log
+        pass
 
 
 # ----------------------------------------
@@ -259,12 +278,109 @@ def log_error(message: str) -> None:
 # ----------------------------------------
 def hash_pwd(password: str) -> str:
     """
+    DEPRECATED: Función legacy con SHA256 (insegura).
+    Mantenida solo para compatibilidad durante migración.
+
+    ⚠️ NO USAR PARA NUEVAS CONTRASEÑAS - usar hash_password_seguro()
+
     Devuelve el hash SHA256 en formato hexadecimal de la contraseña indicada.
     Uso: hash_pwd("mi_clave") -> '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd...'
     """
     if password is None:
         return ""
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def hash_password_seguro(password: str) -> str:
+    """
+    Hash seguro de contraseña usando bcrypt.
+
+    Genera un hash con salt automático y 12 rondas de hashing.
+    Es computacionalmente costoso para prevenir ataques de fuerza bruta.
+
+    Args:
+        password: Contraseña en texto plano
+
+    Returns:
+        Hash bcrypt en formato string (incluye salt y configuración)
+
+    Ejemplo:
+        >>> hash_password_seguro("mi_password_123")
+        '$2b$12$KIXTJvUx5zJ.YvW5vZvwRePHqB4xqP3FE5QwJxPJI6...'
+
+    ⚠️ IMPORTANTE:
+    - Cada llamada genera un hash diferente (salt aleatorio)
+    - Usar verificar_password() para validar, NO comparar directamente
+    """
+    if not password:
+        return ""
+
+    # Generar salt y hashear (12 rondas = seguro y rápido en 2025)
+    salt = bcrypt.gensalt(rounds=12)
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+
+    # Retornar como string para almacenar en BD
+    return hashed.decode('utf-8')
+
+
+def verificar_password(password: str, password_hash: str) -> bool:
+    """
+    Verifica si una contraseña coincide con su hash bcrypt.
+
+    Args:
+        password: Contraseña en texto plano a verificar
+        password_hash: Hash bcrypt almacenado en BD
+
+    Returns:
+        True si la contraseña es correcta, False en caso contrario
+
+    Ejemplo:
+        >>> hash_guardado = hash_password_seguro("mi_password")
+        >>> verificar_password("mi_password", hash_guardado)
+        True
+        >>> verificar_password("password_incorrecta", hash_guardado)
+        False
+
+    Nota:
+        - Es seguro contra timing attacks
+        - Automáticamente maneja el salt incluido en el hash
+    """
+    if not password or not password_hash:
+        return False
+
+    try:
+        # bcrypt.checkpw maneja la comparación de forma segura
+        return bcrypt.checkpw(
+            password.encode('utf-8'),
+            password_hash.encode('utf-8')
+        )
+    except (ValueError, TypeError):
+        # Hash inválido o corrupto
+        return False
+
+
+def es_hash_legacy(password_hash: str) -> bool:
+    """
+    Determina si un hash de contraseña es del formato legacy (SHA256).
+
+    Args:
+        password_hash: Hash de contraseña
+
+    Returns:
+        True si es SHA256 legacy, False si es bcrypt moderno
+
+    Ejemplo:
+        >>> es_hash_legacy("5e884898da28047151d0e56f8dc6292773603d0d...")
+        True
+        >>> es_hash_legacy("$2b$12$KIXTJvUx5zJ.YvW5vZvwRePHqB4...")
+        False
+    """
+    if not password_hash:
+        return False
+
+    # Los hashes bcrypt empiezan con $2a$, $2b$ o $2y$
+    # Los hashes SHA256 son 64 caracteres hexadecimales
+    return not password_hash.startswith('$2') and len(password_hash) == 64
 
 
 # ----------------------------------------

@@ -24,10 +24,10 @@ def get_todos(filtro_texto: Optional[str] = None, limit: int = 1000) -> List[Dic
         sql = """
             SELECT id, nombre, telefono, contacto, email, notas
             FROM proveedores
-            WHERE nombre LIKE %s
-               OR telefono LIKE %s
-               OR contacto LIKE %s
-               OR email LIKE %s
+            WHERE nombre ILIKE %s
+               OR telefono ILIKE %s
+               OR contacto ILIKE %s
+               OR email ILIKE %s
             ORDER BY nombre
             LIMIT %s
         """

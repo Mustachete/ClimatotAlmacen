@@ -5,7 +5,8 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -61,6 +62,7 @@ class MainMenuWindow(QWidget):
         # Obtener datos de sesión
         self.usuario = session_manager.get_usuario_actual()
         self.rol = session_manager.get_rol_actual()
+        self.hostname = socket.gethostname()
 
         self.setWindowTitle(f"📋 Menú Principal - {self.usuario} ({self.rol})")
         self.setMinimumSize(700, 550)
@@ -77,6 +79,11 @@ class MainMenuWindow(QWidget):
 
         # Actualizar contador
         self.actualizar_contador_notificaciones()
+
+        # Timer para actualizar ping de sesión cada 30 segundos
+        self.timer_ping = QTimer(self)
+        self.timer_ping.timeout.connect(self._actualizar_ping_sesion)
+        self.timer_ping.start(30000)  # 30 segundos
 
         # Grid de botones
         grid = QGridLayout()
@@ -95,7 +102,7 @@ class MainMenuWindow(QWidget):
             ("🔧 Configuración", self.abrir_configuracion, self.rol == "admin"),
             ("⚙️ Ajustes", self.abrir_ajustes, True),
             ("🔄 Cambiar Usuario", self.logout, True),
-            ("🚪 Salir", self.close, True),
+            ("🚪 Salir", self.salir_aplicacion, True),
         ]
 
         # Crear botones
@@ -116,12 +123,22 @@ class MainMenuWindow(QWidget):
 
     def logout(self):
         """Cierra sesión manualmente"""
-        # Detener el gestor de inactividad
-        idle_manager = get_idle_manager()
-        idle_manager.stop()
+        # Detener timer de ping
+        if hasattr(self, 'timer_ping'):
+            self.timer_ping.stop()
+
+        # NO usar gestor de inactividad - deshabilitado por solicitud del usuario
+        # idle_manager = get_idle_manager()
+        # idle_manager.stop()
 
         # Registrar cierre de sesión en logs
-        log_fin_sesion(self.usuario, socket.gethostname())
+        log_fin_sesion(self.usuario, self.hostname)
+
+        # Eliminar sesión de la base de datos
+        try:
+            sesiones_repo.eliminar_sesion(self.usuario, self.hostname)
+        except Exception as e:
+            logger.error(f"Error al eliminar sesión: {str(e)}")
 
         # Cerrar sesión en session manager
         session_manager.logout()
@@ -136,58 +153,119 @@ class MainMenuWindow(QWidget):
         # Cerrar esta ventana
         self.close()
 
-        # Mostrar el login como diálogo modal
-        resultado = self.login_window.exec()
+        # Bucle de login: seguir intentando hasta que el usuario se autentique o quiera salir
+        while True:
+            # Resetear el flag de salir antes de mostrar el login
+            self.login_window.quiere_salir = False
+            resultado = self.login_window.exec()
 
-        if resultado == QDialog.Accepted:
-            # Usuario autenticado - registrar sesión en BD
-            user_data = self.login_window.get_usuario_autenticado()
-            hostname = socket.gethostname()
+            if resultado == QDialog.Accepted:
+                # Usuario autenticado - registrar sesión en BD
+                user_data = self.login_window.get_usuario_autenticado()
+                hostname = socket.gethostname()
+                t = int(time.time())
+
+                try:
+                    sesiones_repo.registrar_sesion(user_data["usuario"], t, hostname)
+                    log_inicio_sesion(user_data["usuario"], hostname)
+
+                except Exception as e:
+                    logger.error(f"Error al registrar sesión: {str(e)}")
+                    # Continuar en el bucle de login en caso de error
+                    continue
+
+                # Crear y abrir nuevo menú principal
+                new_main_window = MainMenuWindow(login_window=self.login_window)
+                new_main_window.show()
+
+                # NO reiniciar el gestor de inactividad - deshabilitado
+                # idle_manager.start(
+                #     login_window=self.login_window, main_window=new_main_window
+                # )
+
+                # Salir del bucle después de un login exitoso
+                break
+            else:
+                # Usuario canceló el login
+                # Si presionó "Salir" o cerró la ventana, salir de la aplicación
+                if self.login_window.quiere_salir:
+                    QApplication.quit()
+                    break
+                # Si fue un error de autenticación, volver a mostrar el login
+                continue
+
+    def _actualizar_ping_sesion(self):
+        """Actualiza el último ping de la sesión del usuario en la base de datos"""
+        try:
             t = int(time.time())
+            sesiones_repo.actualizar_ping(self.usuario, self.hostname, t)
+        except Exception as e:
+            logger.error(f"Error al actualizar ping de sesión: {str(e)}")
 
-            try:
-                sesiones_repo.registrar_sesion(user_data["usuario"], t, hostname)
-                log_inicio_sesion(user_data["usuario"], hostname)
+    def salir_aplicacion(self):
+        """Cierra la aplicación con confirmación"""
+        # Preguntar al usuario si está seguro de salir
+        respuesta = QMessageBox.question(
+            self,
+            "Confirmar salida",
+            "¿Está seguro que desea salir de la aplicación?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No  # Por defecto, "No"
+        )
 
-            except Exception as e:
-                logger.error(f"Error al registrar sesión: {str(e)}")
-
-            # Crear y abrir nuevo menú principal
-            new_main_window = MainMenuWindow(login_window=self.login_window)
-            new_main_window.show()
-
-            # Reiniciar el gestor de inactividad
-            idle_manager.start(
-                login_window=self.login_window, main_window=new_main_window
-            )
-        else:
-            # Usuario canceló el login - salir de la aplicación
-            QApplication.quit()
+        if respuesta == QMessageBox.Yes:
+            # Usuario confirmó la salida - cerrar la ventana
+            self.close()
 
     def closeEvent(self, event):
-        """Cuando se cierra el menú principal, detener el idle manager y crear backup si está configurado"""
-        # Crear backup automático al cerrar si está configurado
-        try:
-            from src.services.backup_config_service import obtener_configuracion
-            config = obtener_configuracion()
+        """Cuando se cierra el menú principal, confirmar y crear backup si está configurado"""
+        # Preguntar al usuario si está seguro de cerrar
+        respuesta = QMessageBox.question(
+            self,
+            "Confirmar cierre",
+            "¿Está seguro que desea cerrar la aplicación?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No  # Por defecto, "No"
+        )
 
-            if config.backup_auto_cierre:
-                # Importar y ejecutar backup
-                import sys
-                from pathlib import Path
-                ROOT_DIR = Path(__file__).parent
-                sys.path.insert(0, str(ROOT_DIR))
+        if respuesta == QMessageBox.Yes:
+            # Usuario confirmó el cierre
+            # Detener timer de ping
+            if hasattr(self, 'timer_ping'):
+                self.timer_ping.stop()
 
-                from scripts.backup_db import crear_backup
-                crear_backup(mostrar_log=True, forzar=False)
-        except Exception as e:
-            # No bloquear el cierre si falla el backup
-            logger.warning(f"No se pudo crear backup automático al cerrar: {e}")
+            # Eliminar sesión de la base de datos
+            try:
+                sesiones_repo.eliminar_sesion(self.usuario, self.hostname)
+                log_fin_sesion(self.usuario, self.hostname)
+            except Exception as e:
+                logger.error(f"Error al eliminar sesión al cerrar: {str(e)}")
 
-        # Detener el idle manager
-        idle_manager = get_idle_manager()
-        idle_manager.stop()
-        event.accept()
+            # Crear backup automático al cerrar si está configurado
+            try:
+                from src.services.backup_config_service import obtener_configuracion
+                config = obtener_configuracion()
+
+                if config.backup_auto_cierre:
+                    # Importar y ejecutar backup
+                    import sys
+                    from pathlib import Path
+                    ROOT_DIR = Path(__file__).parent
+                    sys.path.insert(0, str(ROOT_DIR))
+
+                    from scripts.backup_db import crear_backup
+                    crear_backup(mostrar_log=True, forzar=False)
+            except Exception as e:
+                # No bloquear el cierre si falla el backup
+                logger.warning(f"No se pudo crear backup automático al cerrar: {e}")
+
+            # NO usar idle manager - deshabilitado
+            # idle_manager = get_idle_manager()
+            # idle_manager.stop()
+            event.accept()
+        else:
+            # Usuario canceló el cierre - ignorar el evento
+            event.ignore()
 
     def crear_encabezado(self, layout):
         """Crea el encabezado con bienvenida y notificaciones"""
@@ -203,13 +281,13 @@ class MainMenuWindow(QWidget):
 
         # Botón de notificaciones (campana)
         self.btn_notificaciones = QPushButton("🔔")
-        self.btn_notificaciones.setFixedSize(50, 50)
+        self.btn_notificaciones.setFixedSize(70, 60)
         self.btn_notificaciones.setStyleSheet("""
             QPushButton {
                 font-size: 24px;
                 background-color: #f1f5f9;
                 border: 2px solid #cbd5e1;
-                border-radius: 25px;
+                border-radius: 8px;
             }
             QPushButton:hover {
                 background-color: #e2e8f0;
@@ -252,12 +330,13 @@ class MainMenuWindow(QWidget):
                 self.btn_notificaciones.setText(f"🔔\n{total}")
                 self.btn_notificaciones.setStyleSheet("""
                     QPushButton {
-                        font-size: 18px;
+                        font-size: 16px;
                         font-weight: bold;
                         background-color: #fef3c7;
                         border: 2px solid #fbbf24;
-                        border-radius: 25px;
+                        border-radius: 8px;
                         color: #92400e;
+                        padding: 4px;
                     }
                     QPushButton:hover {
                         background-color: #fde68a;
@@ -755,8 +834,7 @@ class MenuConfiguracion(QWidget):
     def abrir_estadisticas_sistema(self):
         """Muestra estadísticas generales del sistema"""
         try:
-            from src.core.db_utils import fetch_all, ENGINE
-            from pathlib import Path
+            from src.core.db_utils import fetch_all
 
             # Obtener estadísticas de la base de datos
             stats = {}
@@ -765,20 +843,20 @@ class MenuConfiguracion(QWidget):
             resultado = fetch_all("SELECT COUNT(*) as total FROM articulos WHERE activo = 1")
             stats['articulos'] = resultado[0]['total'] if resultado else 0
 
-            # Contar movimientos del último mes
+            # Contar movimientos del último mes (PostgreSQL)
             resultado = fetch_all("""
                 SELECT COUNT(*) as total
                 FROM movimientos
-                WHERE fecha >= date('now', '-30 days')
+                WHERE fecha >= CURRENT_DATE - INTERVAL '30 days'
             """)
             stats['movimientos_mes'] = resultado[0]['total'] if resultado else 0
 
-            # Contar OTs del último mes
+            # Contar OTs del último mes (PostgreSQL)
             resultado = fetch_all("""
                 SELECT COUNT(DISTINCT ot) as total
                 FROM movimientos
                 WHERE ot IS NOT NULL AND ot != ''
-                AND fecha >= date('now', '-30 days')
+                AND fecha >= CURRENT_DATE - INTERVAL '30 days'
             """)
             stats['ots_mes'] = resultado[0]['total'] if resultado else 0
 
@@ -786,14 +864,9 @@ class MenuConfiguracion(QWidget):
             resultado = fetch_all("SELECT COUNT(*) as total FROM usuarios WHERE activo = 1")
             stats['usuarios'] = resultado[0]['total'] if resultado else 0
 
-            # Contar furgonetas (SQLite: tabla 'furgonetas' si existe, PostgreSQL: desde 'almacenes')
-            try:
-                resultado = fetch_all("SELECT COUNT(*) as total FROM furgonetas WHERE activa = 1")
-                stats['furgonetas'] = resultado[0]['total'] if resultado else 0
-            except:
-                # Si falla, intentar contar desde almacenes
-                resultado = fetch_all("SELECT COUNT(*) as total FROM almacenes WHERE tipo = 'furgoneta'")
-                stats['furgonetas'] = resultado[0]['total'] if resultado else 0
+            # Contar furgonetas (PostgreSQL: desde 'almacenes')
+            resultado = fetch_all("SELECT COUNT(*) as total FROM almacenes WHERE tipo = 'furgoneta'")
+            stats['furgonetas'] = resultado[0]['total'] if resultado else 0
 
             # Valor total del stock (usando vista vw_stock_total)
             resultado = fetch_all("""
@@ -803,6 +876,8 @@ class MenuConfiguracion(QWidget):
                 WHERE a.activo = 1
             """)
             valor_stock = resultado[0]['total'] if resultado and resultado[0]['total'] else 0
+            # Convertir Decimal a float para formato
+            valor_stock = float(valor_stock) if valor_stock else 0.0
 
             # Artículos con stock bajo (usando vista vw_stock_total y min_alerta)
             resultado = fetch_all("""
@@ -815,23 +890,13 @@ class MenuConfiguracion(QWidget):
             """)
             stats['stock_bajo'] = resultado[0]['total'] if resultado else 0
 
-            # Tamaño de la base de datos
-            if ENGINE == 'sqlite':
-                from src.core.db_utils import DB_PATH
-                db_path = Path(DB_PATH)
-                if db_path.exists():
-                    db_size = db_path.stat().st_size / (1024 * 1024)  # MB
-                    stats['db_size'] = f"{db_size:.2f} MB"
-                else:
-                    stats['db_size'] = "N/A"
-            else:
-                # PostgreSQL - obtener tamaño de la BD
-                try:
-                    resultado = fetch_all("SELECT pg_database_size(current_database()) as size")
-                    db_size = resultado[0]['size'] / (1024 * 1024) if resultado else 0
-                    stats['db_size'] = f"{db_size:.2f} MB"
-                except:
-                    stats['db_size'] = "N/A"
+            # Tamaño de la base de datos PostgreSQL
+            try:
+                resultado = fetch_all("SELECT pg_database_size(current_database()) as size")
+                db_size = resultado[0]['size'] / (1024 * 1024) if resultado else 0
+                stats['db_size'] = f"{db_size:.2f} MB"
+            except:
+                stats['db_size'] = "N/A"
 
             # Mostrar diálogo con estadísticas
             mensaje = f"""
@@ -927,39 +992,51 @@ class MenuConfiguracion(QWidget):
 def main():
     app = QApplication(sys.argv)
 
-    # Mostrar el login como diálogo modal
-    login = VentanaLogin()
-    resultado = login.exec()
+    # Configurar icono de la aplicación
+    base_dir = Path(__file__).parent
+    icon_path = base_dir / "assets" / "images" / "icono_climatot.png"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
-    if resultado == QDialog.Accepted:
-        # Usuario autenticado - registrar sesión en BD
-        user_data = login.get_usuario_autenticado()
-        hostname = socket.gethostname()
-        t = int(time.time())
+    # Bucle de login: seguir intentando hasta que el usuario se autentique o quiera salir
+    while True:
+        login = VentanaLogin()
+        resultado = login.exec()
 
-        try:
-            sesiones_repo.registrar_sesion(user_data["usuario"], t, hostname)
-            log_inicio_sesion(user_data["usuario"], hostname)
+        if resultado == QDialog.Accepted:
+            # Usuario autenticado - registrar sesión en BD
+            user_data = login.get_usuario_autenticado()
+            hostname = socket.gethostname()
+            t = int(time.time())
 
-        except Exception as e:
-            logger.error(f"Error al registrar sesión: {str(e)}")
-            QMessageBox.critical(
-                None, "Error", f"Error al iniciar sesión:\n{str(e)}"
-            )
-            sys.exit(1)
+            try:
+                sesiones_repo.registrar_sesion(user_data["usuario"], t, hostname)
+                log_inicio_sesion(user_data["usuario"], hostname)
 
-        # Crear y mostrar el menú principal
-        main_window = MainMenuWindow(login_window=login)
-        main_window.show()
+            except Exception as e:
+                logger.error(f"Error al registrar sesión: {str(e)}")
+                QMessageBox.critical(
+                    None, "Error", f"Error al iniciar sesión:\n{str(e)}"
+                )
+                # No cerrar, volver a intentar el login
+                continue
 
-        # Iniciar el gestor de inactividad
-        idle_manager = get_idle_manager()
-        idle_manager.start(login_window=login, main_window=main_window)
+            # Crear y mostrar el menú principal
+            main_window = MainMenuWindow(login_window=login)
+            main_window.show()
 
-        sys.exit(app.exec())
-    else:
-        # Usuario canceló el login
-        sys.exit(0)
+            # NO iniciar el gestor de inactividad - deshabilitado por solicitud del usuario
+            # idle_manager = get_idle_manager()
+            # idle_manager.start(login_window=login, main_window=main_window)
+
+            sys.exit(app.exec())
+        else:
+            # Usuario canceló el login
+            # Si presionó "Salir" o cerró la ventana, salir de la aplicación
+            if login.quiere_salir:
+                sys.exit(0)
+            # Si fue un error de autenticación u otro, volver a mostrar el login
+            continue
 
 
 if __name__ == "__main__":

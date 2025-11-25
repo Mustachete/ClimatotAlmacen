@@ -11,6 +11,8 @@ import datetime
 from src.ui.estilos import ESTILO_VENTANA
 from src.ui.ventana_operativa_base import VentanaOperativaBase
 from src.ui.widgets_personalizados import SpinBoxClimatot, crear_boton_quitar_centrado
+from src.ui.combo_loaders import ComboLoader
+from src.ui.dialog_manager import DialogManager
 from src.core.logger import logger
 from src.services import movimientos_service, historial_service
 from src.repos import articulos_repo, albaranes_repo
@@ -263,15 +265,19 @@ class DialogoRecepcion(VentanaOperativaBase):
             self.cmb_proveedor.setCurrentIndex(self.cmb_proveedor.count() - 1)
 
     def cargar_proveedores(self):
-        """Carga los proveedores en el combo"""
-        try:
-            proveedores = articulos_repo.get_proveedores()
-
-            self.cmb_proveedor.addItem("(Sin proveedor)", None)
-            for prov in proveedores:
-                self.cmb_proveedor.addItem(prov['nombre'], prov['id'])
-        except Exception:
-            pass
+        """Carga los proveedores en el combo usando ComboLoader"""
+        exito = ComboLoader.cargar_proveedores(
+            self.cmb_proveedor,
+            articulos_repo.get_proveedores,
+            opcion_vacia=True,
+            texto_vacio="(Sin proveedor)"
+        )
+        if not exito:
+            DialogManager.mostrar_advertencia(
+                self,
+                "No se pudieron cargar los proveedores.\nPuede continuar sin asignar proveedor.",
+                log=False  # Ya está logueado en ComboLoader
+            )
 
     def validar_antes_guardar(self):
         """Valida los datos antes de guardar"""
@@ -442,7 +448,8 @@ class VentanaRecepcion(QWidget):
                 try:
                     fecha_obj = datetime.datetime.strptime(alb['fecha'], "%Y-%m-%d")
                     fecha_mostrar = fecha_obj.strftime("%d/%m/%Y")
-                except:
+                except (ValueError, TypeError):
+                    # Si la fecha no se puede parsear, usar el valor original
                     fecha_mostrar = alb['fecha']
                 self.tabla.setItem(i, 2, QTableWidgetItem(fecha_mostrar))
                 self.tabla.setItem(i, 3, QTableWidgetItem(f"{alb['num_articulos']} artículo(s)"))

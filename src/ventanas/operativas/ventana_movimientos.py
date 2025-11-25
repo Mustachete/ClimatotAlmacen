@@ -10,6 +10,8 @@ from PySide6.QtGui import QShortcut, QKeySequence
 import datetime
 from src.ui.estilos import ESTILO_VENTANA
 from src.ui.widgets_personalizados import SpinBoxClimatot, crear_boton_quitar_centrado
+from src.ui.combo_loaders import ComboLoader
+from src.ui.dialog_manager import DialogManager
 from src.core.logger import logger
 from src.core.error_handler import handle_db_errors, validate_field, show_warning, show_info
 from src.services import movimientos_service, historial_service
@@ -284,19 +286,17 @@ class VentanaMovimientos(QWidget):
 
     @handle_db_errors("cargar_operarios")
     def cargar_operarios(self):
-        """Carga los operarios activos"""
-        try:
-            operarios = movimientos_repo.get_operarios_activos()
-
-            self.cmb_operario.addItem("(Seleccione operario)", None)
-            for op in operarios:
-                emoji = "👷" if op['rol_operario'] == "oficial" else "🔨"
-                texto = f"{emoji} {op['nombre']} ({op['rol_operario']})"
-                self.cmb_operario.addItem(texto, op['id'])
-
-        except Exception as e:
-            logger.error(f"Error al cargar operarios: {e}")
-            QMessageBox.critical(self, "❌ Error", f"Error al cargar operarios:\n{e}")
+        """Carga los operarios activos usando ComboLoader"""
+        exito = ComboLoader.cargar_operarios(
+            self.cmb_operario,
+            movimientos_repo.get_operarios_activos,
+            opcion_vacia=True,
+            texto_vacio="(Seleccione operario)",
+            con_emoji=True
+        )
+        if not exito:
+            # Manejo de error silencioso - ya está logueado en ComboLoader
+            pass
             
     def cambio_operario(self):
         """Al cambiar de operario, busca su furgoneta asignada"""
@@ -425,7 +425,7 @@ class VentanaMovimientos(QWidget):
             # Conectar botones
             btn_cancelar.clicked.connect(dialogo.reject)
 
-            def asignar():
+            def asignar(forzar_asignacion=False):
                 furgoneta_id = cmb_furgoneta.currentData()
                 if not furgoneta_id:
                     QMessageBox.warning(dialogo, "⚠️ Validación", "Debes seleccionar una furgoneta.")
@@ -443,7 +443,7 @@ class VentanaMovimientos(QWidget):
 
                 try:
                     from src.services.furgonetas_service import asignar_furgoneta_a_operario
-                    asignar_furgoneta_a_operario(operario_id, furgoneta_id, fecha, turno)
+                    asignar_furgoneta_a_operario(operario_id, furgoneta_id, fecha, turno, forzar=forzar_asignacion)
 
                     turno_texto = {'completo': 'día completo', 'manana': 'turno mañana', 'tarde': 'turno tarde'}[turno]
                     QMessageBox.information(
@@ -456,6 +456,46 @@ class VentanaMovimientos(QWidget):
                     dialogo.accept()
                     # Actualizar la etiqueta de furgoneta
                     self.cambio_operario()
+                except ValueError as e:
+                    error_msg = str(e)
+                    # Detectar conflicto de día completo
+                    if error_msg.startswith("CONFLICTO_DIA_COMPLETO"):
+                        partes = error_msg.split("|")
+                        if len(partes) == 3:
+                            furgoneta_actual = partes[1]
+                            furgoneta_nueva_id = partes[2]
+
+                            # Obtener nombre de la furgoneta nueva
+                            furgoneta_nueva = next((f for f in furgonetas if f['id'] == int(furgoneta_nueva_id)), None)
+                            if furgoneta_nueva:
+                                numero = furgoneta_nueva.get('numero')
+                                matricula = furgoneta_nueva.get('matricula', '')
+                                if numero:
+                                    furgoneta_nueva_nombre = f"Furgoneta {numero} - {matricula}"
+                                else:
+                                    furgoneta_nueva_nombre = matricula
+                            else:
+                                furgoneta_nueva_nombre = 'Desconocida'
+
+                            respuesta = QMessageBox.question(
+                                dialogo,
+                                "⚠️ Confirmar Cambio de Furgoneta",
+                                f"El operario {operario_nombre} ya tiene asignada la furgoneta:\n\n"
+                                f"  🚚 {furgoneta_actual} (Día completo)\n\n"
+                                f"¿Deseas cambiarla por la furgoneta seleccionada?\n\n"
+                                f"  🚚 {furgoneta_nueva_nombre} (Día completo)\n\n"
+                                f"Esto eliminará la asignación anterior.",
+                                QMessageBox.Yes | QMessageBox.No,
+                                QMessageBox.No
+                            )
+
+                            if respuesta == QMessageBox.Yes:
+                                # Reintentar con forzar=True
+                                asignar(forzar_asignacion=True)
+                        else:
+                            QMessageBox.critical(dialogo, "❌ Error", f"Error de formato en conflicto:\n{e}")
+                    else:
+                        QMessageBox.critical(dialogo, "❌ Error", f"Error de validación:\n{e}")
                 except Exception as e:
                     logger.exception(f"Error al asignar furgoneta: {e}")
                     QMessageBox.critical(dialogo, "❌ Error", f"Error al asignar:\n{e}")

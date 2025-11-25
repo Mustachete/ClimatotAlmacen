@@ -9,7 +9,7 @@ from src.core.logger import logger, log_error_bd
 def obtener_stock_completo(
     filtro_texto: Optional[str] = None,
     familia: Optional[str] = None,
-    almacen: Optional[str] = None,
+    almacen: Optional[int] = None,
     solo_con_stock: bool = False,
     solo_alertas: bool = False
 ) -> List[Dict[str, Any]]:
@@ -19,7 +19,7 @@ def obtener_stock_completo(
     Args:
         filtro_texto: Búsqueda por nombre, EAN o referencia
         familia: Filtro por nombre de familia
-        almacen: Filtro por nombre de almacén
+        almacen: Filtro por ID de almacén (no por nombre)
         solo_con_stock: Si True, solo artículos con stock > 0
         solo_alertas: Si True, solo artículos con stock < mínimo
 

@@ -83,7 +83,7 @@ def get_todos(filtro_texto: Optional[str] = None, limit: int = 100) -> List[Dict
                    (SELECT COUNT(DISTINCT articulo_id) FROM movimientos WHERE albaran=a.albaran) as num_articulos
             FROM albaranes a
             LEFT JOIN proveedores p ON a.proveedor_id = p.id
-            WHERE a.albaran LIKE %s OR p.nombre LIKE %s
+            WHERE a.albaran ILIKE %s OR p.nombre ILIKE %s
             ORDER BY a.fecha DESC, a.albaran
             LIMIT %s
         """

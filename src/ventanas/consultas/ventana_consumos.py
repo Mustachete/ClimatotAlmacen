@@ -412,13 +412,29 @@ class VentanaConsumos(QWidget):
         try:
             self.combo_operario.clear()
             self.combo_operario.addItem("Seleccione un operario...", None)
-            
+
             operarios = consumos_service.obtener_operarios_con_consumos()
+
+            if not operarios:
+                from src.core.logger import logger
+                logger.warning("No se encontraron operarios con consumos")
+                return
+
             for op in operarios:
-                self.combo_operario.addItem(op['nombre'], op['id'])
-                
+                nombre = op.get('nombre', 'Sin nombre')
+                operario_id = op.get('id')
+                if operario_id:
+                    self.combo_operario.addItem(nombre, operario_id)
+
         except Exception as e:
-            print(f"Error al cargar operarios: {e}")
+            from src.core.logger import logger
+            logger.exception(f"Error al cargar operarios: {e}")
+            QMessageBox.warning(
+                self,
+                "⚠️ Advertencia",
+                f"No se pudieron cargar los operarios:\n\n{e}\n\n"
+                "Verifique que existan operarios con imputaciones registradas."
+            )
     
     def _consultar_operario(self):
         """Consulta los consumos de un operario"""

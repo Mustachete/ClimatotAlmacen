@@ -485,7 +485,9 @@ def get_lista_furgonetas() -> List[Dict[str, Any]]:
     
     try:
         return fetch_all(sql_furgonetas)
-    except:
+    except Exception as e:
+        # Si falla la query de furgonetas, intentar con todos los almacenes
+        logger.warning(f"Error al obtener furgonetas, usando todos los almacenes: {e}")
         return fetch_all(sql_almacenes)
 
 
@@ -500,7 +502,7 @@ def buscar_articulo_por_nombre(nombre: str) -> List[Dict[str, Any]]:
         SELECT id, nombre, ean, ref_proveedor, u_medida
         FROM articulos
         WHERE activo = 1
-          AND (nombre LIKE %s OR palabras_clave LIKE %s OR ean LIKE %s OR ref_proveedor LIKE %s)
+          AND (nombre ILIKE %s OR palabras_clave ILIKE %s OR ean ILIKE %s OR ref_proveedor ILIKE %s)
         ORDER BY nombre
         LIMIT 50
     """

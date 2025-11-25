@@ -1,19 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(nul)",
+      "Bash(git push:*)",
+      "Bash(find:*)",
+      "Bash(mkdir:*)",
       "Bash(python:*)",
       "Bash(psql:*)",
-      "Bash(cat:*)",
-      "Bash(sqlite3:*)",
-      "Bash(db/schema_postgres_full.sql)",
-      "Bash(py app.py --version)",
-      "Bash(bc:*)",
-      "Bash(timeout 5 head:*)",
-      "Bash(iconv:*)",
-      "Bash(find:*)",
-      "Bash(timeout 5 py:*)",
-      "Bash(py test_postgresql_migration.py)",
+      "Bash(pip install:*)",
       "Bash(git add:*)"
     ],
     "deny": [],

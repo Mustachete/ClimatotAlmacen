@@ -9,6 +9,8 @@ import datetime
 
 from src.ui.ventana_operativa_base import VentanaOperativaBase
 from src.ui.widgets_personalizados import SpinBoxClimatot
+from src.ui.combo_loaders import ComboLoader
+from src.ui.dialog_manager import DialogManager
 from src.core.logger import logger
 from src.services import movimientos_service, historial_service, almacenes_service
 from src.repos import movimientos_repo
@@ -137,17 +139,16 @@ class VentanaImputacion(VentanaOperativaBase):
         layout.addLayout(select_layout)
 
     def cargar_operarios(self):
-        """Carga los operarios activos"""
-        try:
-            operarios = movimientos_repo.get_operarios_activos()
-
-            self.cmb_operario.addItem("(Seleccione operario)", None)
-            for op in operarios:
-                emoji = "👷" if op['rol_operario'] == "oficial" else "🔨"
-                texto = f"{emoji} {op['nombre']} ({op['rol_operario']})"
-                self.cmb_operario.addItem(texto, op['id'])
-        except Exception as e:
-            QMessageBox.critical(self, "❌ Error", f"Error al cargar operarios:\n{e}")
+        """Carga los operarios activos usando ComboLoader"""
+        exito = ComboLoader.cargar_operarios(
+            self.cmb_operario,
+            movimientos_repo.get_operarios_activos,
+            opcion_vacia=True,
+            texto_vacio="(Seleccione operario)",
+            con_emoji=True
+        )
+        if not exito:
+            DialogManager.mostrar_error(self, "Error al cargar operarios")
 
     def cambio_operario(self):
         """Al cambiar de operario, busca su furgoneta y carga artículos"""

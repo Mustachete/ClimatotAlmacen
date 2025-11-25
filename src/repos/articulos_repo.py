@@ -32,7 +32,7 @@ def get_todos(
 
     if filtro_texto:
         condiciones.append(
-            "(a.nombre LIKE %s OR a.ean LIKE %s OR a.ref_proveedor LIKE %s OR a.palabras_clave LIKE %s)"
+            "(a.nombre ILIKE %s OR a.ean ILIKE %s OR a.ref_proveedor ILIKE %s OR a.palabras_clave ILIKE %s)"
         )
         params.extend([f"%{filtro_texto}%"] * 4)
 
@@ -374,16 +374,16 @@ def buscar_articulos_por_texto(texto: str, limit: int = 10) -> List[Dict[str, An
         SELECT id, nombre, u_medida, ean, ref_proveedor
         FROM articulos
         WHERE activo=1 AND (
-            ean LIKE %s OR
-            ref_proveedor LIKE %s OR
-            nombre LIKE %s OR
-            palabras_clave LIKE %s
+            ean ILIKE %s OR
+            ref_proveedor ILIKE %s OR
+            nombre ILIKE %s OR
+            palabras_clave ILIKE %s
         )
         ORDER BY
             CASE
                 WHEN ean = %s THEN 1
                 WHEN ref_proveedor = %s THEN 2
-                WHEN nombre LIKE %s THEN 3
+                WHEN nombre ILIKE %s THEN 3
                 ELSE 4
             END
         LIMIT %s
@@ -446,10 +446,10 @@ def buscar_articulos_completo(
 
     if texto:
         query += """ AND (
-            a.ean LIKE %s OR
-            a.ref_proveedor LIKE %s OR
-            a.nombre LIKE %s OR
-            a.palabras_clave LIKE %s
+            a.ean ILIKE %s OR
+            a.ref_proveedor ILIKE %s OR
+            a.nombre ILIKE %s OR
+            a.palabras_clave ILIKE %s
         )"""
         params.extend([f"%{texto}%"] * 4)
 
@@ -475,7 +475,7 @@ def buscar_articulos_completo(
                 CASE
                     WHEN a.ean = %s THEN 1
                     WHEN a.ref_proveedor = %s THEN 2
-                    WHEN a.nombre LIKE %s THEN 3
+                    WHEN a.nombre ILIKE %s THEN 3
                     ELSE 4
                 END
         """

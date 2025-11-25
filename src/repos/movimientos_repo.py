@@ -17,6 +17,9 @@ def get_todos(
     articulo_id: Optional[int] = None,
     almacen_id: Optional[int] = None,
     operario_id: Optional[int] = None,
+    articulo_texto: Optional[str] = None,
+    ot: Optional[str] = None,
+    responsable: Optional[str] = None,
     limit: int = 1000
 ) -> List[Dict[str, Any]]:
     """
@@ -29,6 +32,9 @@ def get_todos(
         articulo_id: ID del artículo
         almacen_id: ID del almacén (origen o destino)
         operario_id: ID del operario
+        articulo_texto: Texto para buscar en nombre, EAN o referencia del artículo
+        ot: Número de orden de trabajo
+        responsable: Nombre del responsable
         limit: Límite de resultados
 
     Returns:
@@ -60,6 +66,20 @@ def get_todos(
     if operario_id:
         condiciones.append("m.operario_id = %s")
         params.append(operario_id)
+
+    if articulo_texto:
+        # Buscar en nombre, EAN o referencia del artículo (case insensitive)
+        condiciones.append("(LOWER(a.nombre) LIKE LOWER(%s) OR LOWER(a.ean) LIKE LOWER(%s) OR LOWER(a.ref_proveedor) LIKE LOWER(%s))")
+        texto_busqueda = f"%{articulo_texto}%"
+        params.extend([texto_busqueda, texto_busqueda, texto_busqueda])
+
+    if ot:
+        condiciones.append("LOWER(m.ot) LIKE LOWER(%s)")
+        params.append(f"%{ot}%")
+
+    if responsable:
+        condiciones.append("LOWER(m.responsable) LIKE LOWER(%s)")
+        params.append(f"%{responsable}%")
 
     where_clause = " AND ".join(condiciones) if condiciones else "1=1"
 

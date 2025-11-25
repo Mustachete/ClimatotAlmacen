@@ -9,29 +9,139 @@ from src.core.db_utils import get_con, fetch_one, fetch_all, execute_query
 from src.core.logger import logger
 
 
+def verificar_asignacion_operario_fecha(
+    operario_id: int,
+    fecha: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Verifica si un operario ya tiene asignación en una fecha específica.
+
+    Args:
+        operario_id: ID del operario
+        fecha: Fecha (YYYY-MM-DD)
+
+    Returns:
+        Dict con información de la asignación existente, o None si no hay
+    """
+    try:
+        sql = """
+            SELECT af.turno, af.furgoneta_id, a.nombre as furgoneta_nombre
+            FROM asignaciones_furgoneta af
+            JOIN almacenes a ON af.furgoneta_id = a.id
+            WHERE af.operario_id = %s AND af.fecha = %s
+        """
+        return fetch_one(sql, (operario_id, fecha))
+    except Exception as e:
+        logger.exception(f"Error al verificar asignación: {e}")
+        return None
+
+
 def asignar_furgoneta(
     operario_id: int,
     fecha: str,
     furgoneta_id: int,
-    turno: str = 'completo'
+    turno: str = 'completo',
+    forzar: bool = False
 ) -> bool:
     """
     Asigna una furgoneta a un operario para una fecha y turno específicos.
+
+    Lógica de conflictos:
+    - Si tiene "día completo" y se asigna "tarde": Cambia "completo" a "mañana" automáticamente
+    - Si tiene "día completo" y se asigna "mañana": Cambia "completo" a "tarde" automáticamente
+    - Si tiene "día completo" y se asigna otro "día completo": Requiere forzar=True
+    - Si tiene "mañana" y se asigna "tarde" (o viceversa): OK
+    - Si tiene misma asignación: Actualiza
 
     Args:
         operario_id: ID del operario
         fecha: Fecha (YYYY-MM-DD)
         furgoneta_id: ID de la furgoneta (almacen con tipo='furgoneta')
         turno: 'manana', 'tarde' o 'completo' (default)
+        forzar: Si True, permite sobrescribir "día completo" con otro "día completo"
 
     Returns:
         True si se asignó correctamente
+
+    Raises:
+        ValueError: Si hay conflicto de turnos y no se fuerza (formato: "CONFLICTO_DIA_COMPLETO|furgoneta_actual|furgoneta_nueva")
     """
     try:
         # Validar turno
         if turno not in ('manana', 'tarde', 'completo'):
             raise ValueError(f"Turno inválido: {turno}. Debe ser 'manana', 'tarde' o 'completo'")
 
+        # Verificar asignación existente
+        asignacion_existente = verificar_asignacion_operario_fecha(operario_id, fecha)
+
+        if asignacion_existente:
+            turno_existente = asignacion_existente['turno']
+            furgoneta_existente_id = asignacion_existente['furgoneta_id']
+            furgoneta_existente_nombre = asignacion_existente['furgoneta_nombre']
+
+            # CASO 1: Tiene "día completo" y se asigna "tarde"
+            # → Cambiar "completo" a "mañana" + agregar "tarde"
+            if turno_existente == 'completo' and turno == 'tarde':
+                # Cambiar el turno completo a mañana
+                sql_update = """
+                    UPDATE asignaciones_furgoneta
+                    SET turno = 'manana'
+                    WHERE operario_id = %s AND fecha = %s AND turno = 'completo'
+                """
+                execute_query(sql_update, (operario_id, fecha))
+                logger.info(f"Cambiado turno completo a mañana para operario {operario_id} - {fecha}")
+
+                # Insertar la nueva asignación de tarde
+                sql_insert = """
+                    INSERT INTO asignaciones_furgoneta(operario_id, fecha, turno, furgoneta_id)
+                    VALUES(%s, %s, 'tarde', %s)
+                    ON CONFLICT (fecha, turno, furgoneta_id)
+                    DO UPDATE SET operario_id = EXCLUDED.operario_id
+                """
+                execute_query(sql_insert, (operario_id, fecha, furgoneta_id))
+                logger.info(f"Furgoneta {furgoneta_id} asignada (tarde) a operario {operario_id} - {fecha}")
+                return True
+
+            # CASO 2: Tiene "día completo" y se asigna "mañana"
+            # → Cambiar "completo" a "tarde" + agregar "mañana"
+            elif turno_existente == 'completo' and turno == 'manana':
+                # Cambiar el turno completo a tarde
+                sql_update = """
+                    UPDATE asignaciones_furgoneta
+                    SET turno = 'tarde'
+                    WHERE operario_id = %s AND fecha = %s AND turno = 'completo'
+                """
+                execute_query(sql_update, (operario_id, fecha))
+                logger.info(f"Cambiado turno completo a tarde para operario {operario_id} - {fecha}")
+
+                # Insertar la nueva asignación de mañana
+                sql_insert = """
+                    INSERT INTO asignaciones_furgoneta(operario_id, fecha, turno, furgoneta_id)
+                    VALUES(%s, %s, 'manana', %s)
+                    ON CONFLICT (fecha, turno, furgoneta_id)
+                    DO UPDATE SET operario_id = EXCLUDED.operario_id
+                """
+                execute_query(sql_insert, (operario_id, fecha, furgoneta_id))
+                logger.info(f"Furgoneta {furgoneta_id} asignada (mañana) a operario {operario_id} - {fecha}")
+                return True
+
+            # CASO 3: Tiene "día completo" y se asigna otro "día completo"
+            # → Requiere confirmación (forzar=True)
+            elif turno_existente == 'completo' and turno == 'completo':
+                if not forzar:
+                    raise ValueError(
+                        f"CONFLICTO_DIA_COMPLETO|{furgoneta_existente_nombre}|{furgoneta_id}"
+                    )
+
+                # Eliminar asignación anterior y crear nueva
+                sql_delete = """
+                    DELETE FROM asignaciones_furgoneta
+                    WHERE operario_id = %s AND fecha = %s AND turno = 'completo'
+                """
+                execute_query(sql_delete, (operario_id, fecha))
+                logger.info(f"Eliminada asignación anterior (día completo) para operario {operario_id} - {fecha}")
+
+        # Insertar o actualizar asignación normal
         sql = """
             INSERT INTO asignaciones_furgoneta(operario_id, fecha, turno, furgoneta_id)
             VALUES(%s, %s, %s, %s)

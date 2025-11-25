@@ -409,7 +409,7 @@ class VentanaFichaArticulo(QWidget):
                 try:
                     fecha_obj = datetime.datetime.strptime(mov['fecha'], "%Y-%m-%d")
                     fecha_str = fecha_obj.strftime("%d/%m/%Y")
-                except:
+                except (ValueError, TypeError):
                     fecha_str = mov['fecha']
                 self.tabla_historial.setItem(i, 0, QTableWidgetItem(fecha_str))
 
@@ -605,7 +605,7 @@ class VentanaFichaArticulo(QWidget):
                     from datetime import datetime
                     fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d')
                     fecha_mostrar = fecha_obj.strftime('%d/%m/%Y')
-                except:
+                except (ValueError, TypeError):
                     fecha_mostrar = fecha_str
 
                 item_fecha = QTableWidgetItem(fecha_mostrar)

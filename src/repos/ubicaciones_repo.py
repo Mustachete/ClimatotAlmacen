@@ -20,7 +20,7 @@ def get_todos(filtro_texto: Optional[str] = None, limit: int = 1000) -> List[Dic
         sql = """
             SELECT id, nombre
             FROM ubicaciones
-            WHERE nombre LIKE %s
+            WHERE nombre ILIKE %s
             ORDER BY nombre
             LIMIT %s
         """

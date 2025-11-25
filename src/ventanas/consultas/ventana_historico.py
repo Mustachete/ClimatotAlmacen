@@ -11,6 +11,7 @@ from src.ui.estilos import ESTILO_VENTANA
 from src.ui.widgets_base import (
     TituloVentana, PanelFiltros, TablaEstandar, BotonPrimario, BotonSecundario
 )
+from src.ui.combo_loaders import ComboLoader
 from src.services import almacenes_service, movimientos_service
 
 class VentanaHistorico(QWidget):
@@ -164,15 +165,13 @@ class VentanaHistorico(QWidget):
         self.buscar()
     
     def cargar_almacenes(self):
-        """Carga almacenes en el combo"""
-        try:
-            almacenes = almacenes_service.obtener_almacenes()
-
-            self.cmb_almacen.addItem("Todos", None)
-            for alm in almacenes:
-                self.cmb_almacen.addItem(alm['nombre'], alm['id'])
-        except Exception:
-            pass
+        """Carga almacenes en el combo usando ComboLoader"""
+        ComboLoader.cargar_almacenes(
+            self.cmb_almacen,
+            almacenes_service.obtener_almacenes,
+            opcion_vacia=True,
+            texto_vacio="Todos"
+        )
     
     def toggle_fechas(self):
         """Habilita/deshabilita filtro de fechas"""
@@ -212,10 +211,10 @@ class VentanaHistorico(QWidget):
             if almacen_id:
                 filtros['almacen_id'] = almacen_id
 
-            # Filtro de artículo
+            # Filtro de artículo por texto (nombre, EAN o referencia)
             texto_articulo = self.txt_articulo.text().strip()
             if texto_articulo:
-                filtros['articulo_filtro'] = texto_articulo
+                filtros['articulo_texto'] = texto_articulo
 
             # Filtro de OT
             ot = self.txt_ot.text().strip()
@@ -242,7 +241,7 @@ class VentanaHistorico(QWidget):
                 try:
                     fecha_obj = datetime.datetime.strptime(row['fecha'], "%Y-%m-%d")
                     fecha_str = fecha_obj.strftime("%d/%m/%Y")
-                except:
+                except (ValueError, TypeError):
                     fecha_str = row['fecha']
                 self.tabla.setItem(i, 1, QTableWidgetItem(fecha_str))
 
@@ -262,13 +261,13 @@ class VentanaHistorico(QWidget):
                 self.tabla.setItem(i, 2, item_tipo)
 
                 # Origen
-                self.tabla.setItem(i, 3, QTableWidgetItem(row.get('origen') or "-"))
+                self.tabla.setItem(i, 3, QTableWidgetItem(row.get('origen_nombre') or "-"))
 
                 # Destino
-                self.tabla.setItem(i, 4, QTableWidgetItem(row.get('destino') or "-"))
+                self.tabla.setItem(i, 4, QTableWidgetItem(row.get('destino_nombre') or "-"))
 
                 # Artículo
-                self.tabla.setItem(i, 5, QTableWidgetItem(row['articulo']))
+                self.tabla.setItem(i, 5, QTableWidgetItem(row.get('articulo_nombre', '')))
 
                 # Cantidad
                 item_cant = QTableWidgetItem(f"{row['cantidad']:.2f}")

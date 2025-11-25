@@ -10,6 +10,7 @@ from PySide6.QtGui import QColor, QShortcut, QKeySequence
 import datetime
 from src.ui.estilos import ESTILO_VENTANA, ESTILO_DIALOGO
 from src.ui.widgets_personalizados import SpinBoxClimatot
+from src.ui.combo_loaders import ComboLoader
 from src.core.logger import logger
 from src.services import inventarios_service, historial_service
 from src.core.session_manager import session_manager
@@ -106,17 +107,25 @@ class DialogoNuevoInventario(QDialog):
         self.inventario_id = None
     
     def cargar_almacenes(self):
-        """Carga los almacenes y furgonetas"""
+        """Carga los almacenes y furgonetas con icono según tipo"""
         try:
             almacenes = inventarios_repo.get_almacenes()
 
-            for alm in almacenes:
-                # Añadir icono según tipo
-                if alm['tipo'] == 'furgoneta':
-                    texto = f"🚚 {alm['nombre']}"
+            def formatter_con_icono(alm):
+                """Formatea el nombre con icono según tipo de almacén"""
+                if alm.get('tipo') == 'furgoneta':
+                    return f"🚚 {alm['nombre']}"
                 else:
-                    texto = f"🏢 {alm['nombre']}"
-                self.cmb_almacen.addItem(texto, alm['id'])
+                    return f"🏢 {alm['nombre']}"
+
+            ComboLoader.cargar_items(
+                self.cmb_almacen,
+                almacenes,
+                text_key='nombre',
+                data_key='id',
+                opcion_vacia=None,
+                custom_formatter=formatter_con_icono
+            )
         except Exception as e:
             logger.exception(f"Error al cargar almacenes: {e}")
     
@@ -294,7 +303,7 @@ class VentanaConteo(QWidget):
                 try:
                     fecha_obj = datetime.datetime.strptime(inventario['fecha'], "%Y-%m-%d")
                     fecha_str = fecha_obj.strftime("%d/%m/%Y")
-                except:
+                except (ValueError, TypeError):
                     fecha_str = inventario['fecha']
 
                 self.info_inv = {
@@ -312,9 +321,16 @@ class VentanaConteo(QWidget):
                         "No se pueden modificar los conteos."
                     )
                     self.btn_finalizar.setEnabled(False)
-            
-        except Exception:
+
+        except Exception as e:
+            logger.error(f"Error al cargar información del inventario: {e}")
             self.info_inv = {'fecha': '', 'responsable': '', 'almacen': '', 'estado': ''}
+            QMessageBox.warning(
+                self,
+                "⚠️ Advertencia",
+                "No se pudo cargar la información del inventario.\n"
+                "Puede continuar pero algunos datos pueden no estar disponibles."
+            )
     
     def cargar_detalle(self):
         """Carga el detalle del inventario"""
@@ -778,7 +794,7 @@ class VentanaInventario(QWidget):
                 try:
                     fecha_obj = datetime.datetime.strptime(inv['fecha'], "%Y-%m-%d")
                     fecha_str = fecha_obj.strftime("%d/%m/%Y")
-                except:
+                except (ValueError, TypeError):
                     fecha_str = inv['fecha']
                 self.tabla.setItem(i, 1, QTableWidgetItem(fecha_str))
 
@@ -811,7 +827,7 @@ class VentanaInventario(QWidget):
                     try:
                         fecha_cierre_obj = datetime.datetime.strptime(inv['fecha_cierre'], "%Y-%m-%d")
                         fecha_cierre_str = fecha_cierre_obj.strftime("%d/%m/%Y")
-                    except:
+                    except (ValueError, TypeError):
                         fecha_cierre_str = inv['fecha_cierre']
                 else:
                     fecha_cierre_str = "-"

@@ -11,6 +11,7 @@ from src.ui.widgets_base import (
     TituloVentana, DescripcionVentana, TablaEstandar, Alerta,
     BotonPrimario, BotonSecundario
 )
+from src.ui.combo_loaders import ComboLoader
 from src.services import familias_service, almacenes_service, stock_service
 
 # Directorio base del proyecto
@@ -145,19 +146,19 @@ class VentanaStock(QWidget):
             self.cmb_familia.addItem("Todas", None)
             for familia in familias:
                 self.cmb_familia.addItem(familia['nombre'], familia['nombre'])
-        except Exception:
-            pass
+        except Exception as e:
+            # Si falla la carga de familias, continuamos sin filtro de familia
+            from src.core.logger import logger
+            logger.warning(f"No se pudieron cargar familias en ventana_stock: {e}")
     
     def cargar_almacenes(self):
-        """Carga los almacenes en el combo"""
-        try:
-            almacenes = almacenes_service.obtener_almacenes()
-
-            self.cmb_almacen.addItem("Todos", None)
-            for almacen in almacenes:
-                self.cmb_almacen.addItem(almacen['nombre'], almacen['nombre'])
-        except Exception:
-            pass
+        """Carga los almacenes en el combo usando ComboLoader"""
+        ComboLoader.cargar_almacenes(
+            self.cmb_almacen,
+            almacenes_service.obtener_almacenes,
+            opcion_vacia=True,
+            texto_vacio="Todos"
+        )
     
     def aplicar_filtros(self):
         """Aplica los filtros y carga los datos"""

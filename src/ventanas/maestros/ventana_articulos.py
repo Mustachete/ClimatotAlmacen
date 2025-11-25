@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from src.ui.estilos import ESTILO_DIALOGO
 from src.ui.ventana_maestro_base import VentanaMaestroBase
+from src.ui.combo_loaders import ComboLoader
 from src.services import articulos_service
 from src.core.session_manager import session_manager
 from src.repos import articulos_repo
@@ -170,37 +171,31 @@ class DialogoArticulo(QDialog):
             self.txt_nombre.setFocus()
     
     def cargar_familias(self):
-        """Carga las familias en el combo"""
-        try:
-            familias = articulos_repo.get_familias()
-
-            self.cmb_familia.addItem("(Sin familia)", None)
-            for fam in familias:
-                self.cmb_familia.addItem(fam['nombre'], fam['id'])
-        except Exception:
-            pass
+        """Carga las familias en el combo usando ComboLoader"""
+        ComboLoader.cargar_familias(
+            self.cmb_familia,
+            articulos_repo.get_familias,
+            opcion_vacia=True,
+            texto_vacio="(Sin familia)"
+        )
     
     def cargar_ubicaciones(self):
-        """Carga las ubicaciones en el combo"""
-        try:
-            ubicaciones = articulos_repo.get_ubicaciones()
-
-            self.cmb_ubicacion.addItem("(Sin ubicación)", None)
-            for ubi in ubicaciones:
-                self.cmb_ubicacion.addItem(ubi['nombre'], ubi['id'])
-        except Exception:
-            pass
+        """Carga las ubicaciones en el combo usando ComboLoader"""
+        ComboLoader.cargar_ubicaciones(
+            self.cmb_ubicacion,
+            articulos_repo.get_ubicaciones,
+            opcion_vacia=True,
+            texto_vacio="(Sin ubicación)"
+        )
     
     def cargar_proveedores(self):
-        """Carga los proveedores en el combo"""
-        try:
-            proveedores = articulos_repo.get_proveedores()
-
-            self.cmb_proveedor.addItem("(Sin proveedor)", None)
-            for prov in proveedores:
-                self.cmb_proveedor.addItem(prov['nombre'], prov['id'])
-        except Exception:
-            pass
+        """Carga los proveedores en el combo usando ComboLoader"""
+        ComboLoader.cargar_proveedores(
+            self.cmb_proveedor,
+            articulos_repo.get_proveedores,
+            opcion_vacia=True,
+            texto_vacio="(Sin proveedor)"
+        )
     
     def cargar_datos(self):
         """Carga los datos del artículo a editar"""
@@ -345,8 +340,9 @@ class VentanaArticulos(VentanaMaestroBase):
         # Filtro de familia
         lbl_familia = QLabel("Familia:")
         self.cmb_familia_filtro = QComboBox()
-        self.cmb_familia_filtro.addItem("Todas", None)
-        self.cargar_familias_filtro()
+        self.cargar_familias_filtro()  # Carga familias primero
+        self.cmb_familia_filtro.insertItem(0, "Todas", None)  # Inserta "Todas" al principio
+        self.cmb_familia_filtro.setCurrentIndex(0)  # Selecciona "Todas" por defecto
         self.cmb_familia_filtro.currentTextChanged.connect(self.buscar)
 
         # Filtro de estado
@@ -377,9 +373,23 @@ class VentanaArticulos(VentanaMaestroBase):
         ])
         self.tabla.setColumnHidden(0, True)
 
-        # Ajustar columnas
+        # Habilitar ordenación al hacer clic en las cabeceras
+        self.tabla.setSortingEnabled(True)
+
+        # Ajustar columnas - todas interactivas (redimensionables)
         header = self.tabla.horizontalHeader()
-        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Nombre se estira
+        header.setSectionResizeMode(QHeaderView.Interactive)  # Todas las columnas redimensionables
+        header.setStretchLastSection(False)  # No estirar última columna automáticamente
+
+        # Establecer anchos iniciales razonables
+        self.tabla.setColumnWidth(1, 120)  # EAN
+        self.tabla.setColumnWidth(2, 100)  # Ref
+        self.tabla.setColumnWidth(3, 250)  # Nombre (más ancho)
+        self.tabla.setColumnWidth(4, 150)  # Familia
+        self.tabla.setColumnWidth(5, 100)  # U.Medida
+        self.tabla.setColumnWidth(6, 90)   # Stock Mín
+        self.tabla.setColumnWidth(7, 90)   # Coste
+        self.tabla.setColumnWidth(8, 100)  # Estado
 
     def get_service(self):
         """Retorna el service de artículos"""
@@ -394,13 +404,12 @@ class VentanaArticulos(VentanaMaestroBase):
         return self.tabla.item(fila, 3).text()  # Columna 3 = Nombre
 
     def cargar_familias_filtro(self):
-        """Carga las familias en el combo de filtro"""
-        try:
-            familias = articulos_repo.get_familias()
-            for fam in familias:
-                self.cmb_familia_filtro.addItem(fam['nombre'], fam['id'])
-        except Exception:
-            pass
+        """Carga las familias en el combo de filtro usando ComboLoader"""
+        ComboLoader.cargar_familias(
+            self.cmb_familia_filtro,
+            articulos_repo.get_familias,
+            opcion_vacia=False
+        )
 
     def cargar_datos(self, filtro=""):
         """Sobrescribe para manejar filtros adicionales"""

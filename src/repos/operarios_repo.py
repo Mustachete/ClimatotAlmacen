@@ -31,7 +31,7 @@ def get_todos(
     params = []
 
     if filtro_texto:
-        condiciones.append("nombre LIKE %s")
+        condiciones.append("nombre ILIKE %s")
         params.append(f"%{filtro_texto}%")
 
     if solo_rol:

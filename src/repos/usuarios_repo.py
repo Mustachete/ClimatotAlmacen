@@ -26,7 +26,7 @@ def get_todos(filtro_texto: Optional[str] = None, solo_activos: Optional[bool] =
     params = []
 
     if filtro_texto:
-        sql += " AND usuario LIKE %s"
+        sql += " AND usuario ILIKE %s"
         params.append(f"%{filtro_texto}%")
 
     if solo_activos is not None:
