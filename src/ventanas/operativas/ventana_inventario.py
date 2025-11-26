@@ -10,11 +10,12 @@ from PySide6.QtGui import QColor, QShortcut, QKeySequence
 import datetime
 from src.ui.estilos import ESTILO_VENTANA, ESTILO_DIALOGO
 from src.ui.widgets_personalizados import SpinBoxClimatot
-from src.core.db_utils import get_con
+from src.ui.combo_loaders import ComboLoader
 from src.core.logger import logger
 from src.services import inventarios_service, historial_service
 from src.core.session_manager import session_manager
 from src.repos import inventarios_repo
+from src.utils import validaciones
 
 # ========================================
 # DIÁLOGO: NUEVO INVENTARIO
@@ -66,7 +67,7 @@ class DialogoNuevoInventario(QDialog):
         layout.addWidget(grupo)
         
         # Opciones de filtrado
-        grupo_filtros = QGroupBox("¿Qué artículos incluir?")
+        grupo_filtros = QGroupBox("¿Qué artículos incluir%s")
         filtros_layout = QVBoxLayout()
         
         self.radio_todos = QCheckBox("Todos los artículos activos")
@@ -106,22 +107,25 @@ class DialogoNuevoInventario(QDialog):
         self.inventario_id = None
     
     def cargar_almacenes(self):
-        """Carga los almacenes y furgonetas"""
+        """Carga los almacenes y furgonetas con icono según tipo"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("SELECT id, nombre, tipo FROM almacenes ORDER BY tipo, nombre")
-            rows = cur.fetchall()
-            con.close()
+            almacenes = inventarios_repo.get_almacenes()
 
-            for row in rows:
-                almacen_id, nombre, tipo = row
-                # Añadir icono según tipo
-                if tipo == 'furgoneta':
-                    texto = f"🚚 {nombre}"
+            def formatter_con_icono(alm):
+                """Formatea el nombre con icono según tipo de almacén"""
+                if alm.get('tipo') == 'furgoneta':
+                    return f"🚚 {alm['nombre']}"
                 else:
-                    texto = f"🏢 {nombre}"
-                self.cmb_almacen.addItem(texto, almacen_id)
+                    return f"🏢 {alm['nombre']}"
+
+            ComboLoader.cargar_items(
+                self.cmb_almacen,
+                almacenes,
+                text_key='nombre',
+                data_key='id',
+                opcion_vacia=None,
+                custom_formatter=formatter_con_icono
+            )
         except Exception as e:
             logger.exception(f"Error al cargar almacenes: {e}")
     
@@ -129,8 +133,10 @@ class DialogoNuevoInventario(QDialog):
         """Crea el inventario usando el service"""
         responsable = self.txt_responsable.text().strip()
 
-        if not responsable:
-            QMessageBox.warning(self, "⚠️ Aviso", "El responsable es obligatorio.")
+        # Validar responsable usando validaciones centralizadas
+        valido, mensaje = validaciones.validar_campo_obligatorio(responsable, 'responsable')
+        if not valido:
+            QMessageBox.warning(self, "⚠️ Aviso", mensaje)
             return
 
         almacen_id = self.cmb_almacen.currentData()
@@ -290,33 +296,24 @@ class VentanaConteo(QWidget):
     def cargar_info_inventario(self):
         """Carga la información del inventario"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("""
-                SELECT i.fecha, i.responsable, a.nombre, i.estado
-                FROM inventarios i
-                JOIN almacenes a ON i.almacen_id = a.id
-                WHERE i.id = ?
-            """, (self.inventario_id,))
-            row = cur.fetchone()
-            con.close()
-            
-            if row:
+            inventario = inventarios_repo.get_by_id(self.inventario_id)
+
+            if inventario:
                 # Formatear fecha
                 try:
-                    fecha_obj = datetime.datetime.strptime(row[0], "%Y-%m-%d")
+                    fecha_obj = datetime.datetime.strptime(inventario['fecha'], "%Y-%m-%d")
                     fecha_str = fecha_obj.strftime("%d/%m/%Y")
-                except:
-                    fecha_str = row[0]
-                
+                except (ValueError, TypeError):
+                    fecha_str = inventario['fecha']
+
                 self.info_inv = {
                     'fecha': fecha_str,
-                    'responsable': row[1],
-                    'almacen': row[2],
-                    'estado': row[3]
+                    'responsable': inventario['responsable'],
+                    'almacen': inventario['almacen_nombre'],
+                    'estado': inventario['estado']
                 }
-                
-                if row[3] == 'FINALIZADO':
+
+                if inventario['estado'] == 'FINALIZADO':
                     QMessageBox.information(
                         self,
                         "ℹ️ Inventario Finalizado",
@@ -324,31 +321,29 @@ class VentanaConteo(QWidget):
                         "No se pueden modificar los conteos."
                     )
                     self.btn_finalizar.setEnabled(False)
-            
-        except Exception:
+
+        except Exception as e:
+            logger.error(f"Error al cargar información del inventario: {e}")
             self.info_inv = {'fecha': '', 'responsable': '', 'almacen': '', 'estado': ''}
+            QMessageBox.warning(
+                self,
+                "⚠️ Advertencia",
+                "No se pudo cargar la información del inventario.\n"
+                "Puede continuar pero algunos datos pueden no estar disponibles."
+            )
     
     def cargar_detalle(self):
         """Carga el detalle del inventario"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("""
-                SELECT 
-                    d.id,
-                    a.nombre,
-                    a.u_medida,
-                    d.stock_teorico,
-                    d.stock_contado,
-                    d.diferencia
-                FROM inventario_detalle d
-                JOIN articulos a ON d.articulo_id = a.id
-                WHERE d.inventario_id = ?
-                ORDER BY a.nombre
-            """, (self.inventario_id,))
-            self.rows = cur.fetchall()
-            con.close()
-            
+            detalle = inventarios_repo.get_detalle(self.inventario_id)
+
+            # Convertir a formato tupla para compatibilidad con el código existente
+            self.rows = [
+                (d['id'], d['articulo_nombre'], d['u_medida'],
+                 d['stock_teorico'], d['stock_contado'], d['diferencia'])
+                for d in detalle
+            ]
+
             self.filtrar_tabla()
             
         except Exception as e:
@@ -497,19 +492,10 @@ class VentanaConteo(QWidget):
         
         def guardar_conteo():
             contado = spin_contado.value()
-            diferencia = contado - stock_teorico
-            
+
             try:
-                con = get_con()
-                cur = con.cursor()
-                cur.execute("""
-                    UPDATE inventario_detalle
-                    SET stock_contado = ?, diferencia = ?
-                    WHERE id = ?
-                """, (contado, diferencia, detalle_id))
-                con.commit()
-                con.close()
-                
+                inventarios_repo.actualizar_conteo(detalle_id, contado)
+
                 dialogo.accept()
                 self.cargar_detalle()
                 
@@ -787,81 +773,62 @@ class VentanaInventario(QWidget):
     def cargar_inventarios(self):
         """Carga el histórico de inventarios"""
         filtro = self.cmb_filtro.currentText()
-        
+
         try:
-            con = get_con()
-            cur = con.cursor()
-            
-            query = """
-                SELECT 
-                    i.id,
-                    i.fecha,
-                    i.responsable,
-                    a.nombre as almacen,
-                    (SELECT COUNT(*) FROM inventario_detalle WHERE inventario_id = i.id) as num_arts,
-                    i.estado,
-                    i.fecha_cierre
-                FROM inventarios i
-                JOIN almacenes a ON i.almacen_id = a.id
-                WHERE 1=1
-            """
-            
+            # Determinar filtro de estado
+            estado_filtro = None
             if filtro == "Solo en proceso":
-                query += " AND i.estado = 'EN_PROCESO'"
+                estado_filtro = "EN_PROCESO"
             elif filtro == "Solo finalizados":
-                query += " AND i.estado = 'FINALIZADO'"
-            
-            query += " ORDER BY i.id DESC"
-            
-            cur.execute(query)
-            rows = cur.fetchall()
-            con.close()
-            
-            self.tabla.setRowCount(len(rows))
-            
-            for i, row in enumerate(rows):
+                estado_filtro = "FINALIZADO"
+
+            inventarios = inventarios_repo.get_todos(estado=estado_filtro, limit=500)
+
+            self.tabla.setRowCount(len(inventarios))
+
+            for i, inv in enumerate(inventarios):
                 # ID
-                self.tabla.setItem(i, 0, QTableWidgetItem(str(row[0])))
-                
+                self.tabla.setItem(i, 0, QTableWidgetItem(str(inv['id'])))
+
                 # Fecha
                 try:
-                    fecha_obj = datetime.datetime.strptime(row[1], "%Y-%m-%d")
+                    fecha_obj = datetime.datetime.strptime(inv['fecha'], "%Y-%m-%d")
                     fecha_str = fecha_obj.strftime("%d/%m/%Y")
-                except:
-                    fecha_str = row[1]
+                except (ValueError, TypeError):
+                    fecha_str = inv['fecha']
                 self.tabla.setItem(i, 1, QTableWidgetItem(fecha_str))
-                
+
                 # Responsable
-                self.tabla.setItem(i, 2, QTableWidgetItem(row[2]))
-                
+                self.tabla.setItem(i, 2, QTableWidgetItem(inv['responsable']))
+
                 # Almacén
-                self.tabla.setItem(i, 3, QTableWidgetItem(row[3]))
-                
+                self.tabla.setItem(i, 3, QTableWidgetItem(inv['almacen_nombre']))
+
                 # Artículos
-                item_arts = QTableWidgetItem(f"{row[4]} artículos")
+                item_arts = QTableWidgetItem(f"{inv['total_articulos']} artículos")
                 item_arts.setTextAlignment(Qt.AlignCenter)
                 self.tabla.setItem(i, 4, item_arts)
-                
+
                 # Estado
-                if row[5] == 'EN_PROCESO':
+                if inv['estado'] == 'EN_PROCESO':
                     estado_txt = "⏳ En Proceso"
                     color = QColor("#fef3c7")
                 else:
                     estado_txt = "✅ Finalizado"
                     color = QColor("#d1fae5")
-                
+
                 item_estado = QTableWidgetItem(estado_txt)
                 item_estado.setBackground(color)
                 item_estado.setTextAlignment(Qt.AlignCenter)
                 self.tabla.setItem(i, 5, item_estado)
-                
+
                 # Fecha cierre
-                if row[6]:
+                if inv['fecha_cierre']:
                     try:
-                        fecha_cierre_obj = datetime.datetime.strptime(row[6], "%Y-%m-%d")
+                        fecha_cierre_obj = datetime.datetime.strptime(inv['fecha_cierre'], "%Y-%m-%d")
                         fecha_cierre_str = fecha_cierre_obj.strftime("%d/%m/%Y")
-                    except:
-                        fecha_cierre_str = row[6]
+                    except (ValueError, TypeError):
+                        fecha_cierre_str = inv['fecha_cierre']
                 else:
                     fecha_cierre_str = "-"
                 self.tabla.setItem(i, 6, QTableWidgetItem(fecha_cierre_str))

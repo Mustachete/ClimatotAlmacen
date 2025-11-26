@@ -72,7 +72,13 @@ def obtener_operarios_con_consumos() -> List[Dict[str, Any]]:
     """
     Obtiene lista de operarios que han hecho imputaciones.
     """
-    return consumos_repo.get_lista_operarios_con_consumos()
+    try:
+        return consumos_repo.get_lista_operarios_con_consumos()
+    except Exception as e:
+        from src.core.logger import logger, log_error_bd
+        log_error_bd("consumos", "obtener_operarios_con_consumos", e)
+        logger.exception(f"Error al obtener operarios con consumos: {e}")
+        return []
 
 
 # ========================================

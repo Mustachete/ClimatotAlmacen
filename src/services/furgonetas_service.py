@@ -3,15 +3,14 @@ from datetime import date
 from typing import Optional, Dict, Any, List
 
 from src.repos.furgonetas_repo import (
-    ensure_schema,
     list_furgonetas, get_furgoneta, create_furgoneta, update_furgoneta, delete_furgoneta
 )
 from src.repos import asignaciones_repo
 
 
 def boot() -> None:
-    """Inicializa/migra el esquema si falta."""
-    ensure_schema()
+    """Inicializa el servicio de furgonetas (no requiere migración en PostgreSQL)."""
+    pass
 
 
 def alta_furgoneta(matricula: str, marca: str = None, modelo: str = None, anio: int = None, notas: str = None, numero: int = None) -> int:
@@ -44,7 +43,8 @@ def asignar_furgoneta_a_operario(
     operario_id: int,
     furgoneta_id: int,
     fecha: str,
-    turno: str = 'completo'
+    turno: str = 'completo',
+    forzar: bool = False
 ) -> bool:
     """
     Asigna una furgoneta a un operario para una fecha y turno específicos.
@@ -54,11 +54,12 @@ def asignar_furgoneta_a_operario(
         furgoneta_id: ID de la furgoneta (almacen con tipo='furgoneta')
         fecha: Fecha en formato YYYY-MM-DD
         turno: 'manana', 'tarde' o 'completo' (default)
+        forzar: Si True, permite sobrescribir "día completo" con otro "día completo"
 
     Returns:
         True si se asignó correctamente
     """
-    return asignaciones_repo.asignar_furgoneta(operario_id, fecha, furgoneta_id, turno)
+    return asignaciones_repo.asignar_furgoneta(operario_id, fecha, furgoneta_id, turno, forzar)
 
 
 def obtener_furgoneta_operario(
@@ -97,3 +98,146 @@ def listar_asignaciones_operario(
         Lista de asignaciones
     """
     return asignaciones_repo.get_asignaciones_operario(operario_id, fecha_desde, fecha_hasta)
+
+
+def obtener_asignaciones_filtradas(
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+    operario_id: Optional[int] = None,
+    furgoneta_id: Optional[int] = None,
+    turno: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Obtiene asignaciones con filtros múltiples.
+
+    Args:
+        fecha_desde: Fecha inicial (opcional)
+        fecha_hasta: Fecha final (opcional)
+        operario_id: Filtrar por operario (opcional)
+        furgoneta_id: Filtrar por furgoneta (opcional)
+        turno: Filtrar por turno: 'manana', 'tarde', 'completo' (opcional)
+
+    Returns:
+        Lista de asignaciones que cumplen los filtros
+    """
+    return asignaciones_repo.buscar_asignaciones_filtradas(
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        operario_id=operario_id,
+        furgoneta_id=furgoneta_id,
+        turno=turno
+    )
+
+
+# ========================================
+# WRAPPER PARA COMPATIBILIDAD CON DialogoMaestroBase
+# ========================================
+class _FurgonetasServiceWrapper:
+    """
+    Wrapper para adaptar furgonetas_service (basado en funciones)
+    al patrón esperado por DialogoMaestroBase (basado en métodos de clase).
+    """
+
+    def obtener_furgonetas(self, filtro_texto: Optional[str] = None, limit: int = 1000) -> List[Dict[str, Any]]:
+        """Lista todas las furgonetas"""
+        return list_furgonetas(include_inactive=True)
+
+    def obtener_furgoneta(self, furgoneta_id: int) -> Optional[Dict[str, Any]]:
+        """Obtiene una furgoneta por ID"""
+        return get_furgoneta(furgoneta_id)
+
+    def crear_furgoneta(self, matricula: str, numero: int = None, marca: str = None,
+                       modelo: str = None, anio: int = None, activa: bool = True,
+                       notas: str = None, usuario: str = None) -> tuple:
+        """
+        Crea una nueva furgoneta.
+
+        Returns:
+            Tupla (exito, mensaje, furgoneta_id)
+        """
+        try:
+            # Validar matrícula obligatoria
+            if not matricula or not matricula.strip():
+                return False, "La matrícula es obligatoria", None
+
+            # Validar número único si se proporciona
+            if numero is not None:
+                furgonetas = list_furgonetas()
+                for f in furgonetas:
+                    if f.get('numero') == numero:
+                        return False, f"El número {numero} ya está asignado a otra furgoneta", None
+
+            # Crear furgoneta
+            furgoneta_id = alta_furgoneta(
+                matricula=matricula,
+                marca=marca,
+                modelo=modelo,
+                anio=anio,
+                notas=notas,
+                numero=numero
+            )
+
+            return True, "Furgoneta creada correctamente", furgoneta_id
+
+        except Exception as e:
+            return False, f"Error al crear furgoneta: {str(e)}", None
+
+    def actualizar_furgoneta(self, furgoneta_id: int, matricula: str,
+                            numero: int = None, marca: str = None, modelo: str = None,
+                            anio: int = None, activa: bool = True, notas: str = None,
+                            usuario: str = None) -> tuple:
+        """
+        Actualiza una furgoneta existente.
+
+        Returns:
+            Tupla (exito, mensaje)
+        """
+        try:
+            # Validar matrícula obligatoria
+            if not matricula or not matricula.strip():
+                return False, "La matrícula es obligatoria"
+
+            # Validar número único si se proporciona
+            if numero is not None:
+                furgonetas = list_furgonetas()
+                for f in furgonetas:
+                    if f['id'] != furgoneta_id and f.get('numero') == numero:
+                        return False, f"El número {numero} ya está asignado a otra furgoneta"
+
+            # Actualizar furgoneta
+            modificar_furgoneta(
+                furgoneta_id,
+                matricula=matricula,
+                numero=numero,
+                marca=marca,
+                modelo=modelo,
+                anio=anio,
+                activa=1 if activa else 0,
+                notas=notas
+            )
+
+            return True, "Furgoneta actualizada correctamente"
+
+        except Exception as e:
+            return False, f"Error al actualizar furgoneta: {str(e)}"
+
+    def eliminar_furgoneta(self, furgoneta_id: int, usuario: str = None) -> tuple:
+        """
+        Elimina una furgoneta.
+
+        Args:
+            furgoneta_id: ID de la furgoneta a eliminar
+            usuario: Usuario que realiza la acción (opcional)
+
+        Returns:
+            Tupla (exito, mensaje)
+        """
+        try:
+            baja_furgoneta(furgoneta_id)
+            return True, "Furgoneta eliminada correctamente"
+        except Exception as e:
+            return False, f"Error al eliminar furgoneta: {str(e)}"
+
+
+# Instancia singleton del wrapper
+furgonetas_service_wrapper = _FurgonetasServiceWrapper()

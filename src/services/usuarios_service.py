@@ -2,10 +2,15 @@
 Servicio de Usuarios - Lógica de negocio para gestión de usuarios y autenticación
 """
 from typing import List, Dict, Any, Optional, Tuple
-import sqlite3
+import psycopg2
 import re
 from src.repos import usuarios_repo
-from src.core.db_utils import hash_pwd
+from src.core.db_utils import (
+    hash_pwd,  # Legacy - para compatibilidad
+    hash_password_seguro,  # Nuevo - bcrypt
+    verificar_password,  # Nuevo - verificación bcrypt
+    es_hash_legacy  # Nuevo - detectar formato
+)
 from src.core.logger import logger, log_operacion, log_validacion, log_error_bd
 
 
@@ -73,7 +78,17 @@ def validar_usuario_unico(usuario: str) -> Tuple[bool, str]:
 
 
 def autenticar_usuario(usuario: str, password: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-    """Autentica un usuario verificando usuario y contraseña."""
+    """
+    Autentica un usuario verificando usuario y contraseña.
+
+    Sistema HÍBRIDO que soporta:
+    - Hashes legacy (SHA256) - para compatibilidad
+    - Hashes modernos (bcrypt) - seguro
+
+    MIGRACIÓN AUTOMÁTICA:
+    Si el login es exitoso con hash legacy, automáticamente re-hashea
+    con bcrypt para migrar progresivamente sin resetear contraseñas.
+    """
     try:
         if not usuario or not password:
             return False, "Usuario y contraseña son obligatorios", None
@@ -89,13 +104,44 @@ def autenticar_usuario(usuario: str, password: str) -> Tuple[bool, str, Optional
             log_validacion("usuarios", "autenticar", f"Usuario inactivo: {usuario}")
             return False, "El usuario está desactivado", None
 
-        password_hash = hash_pwd(password)
-        if password_hash != user_data['pass_hash']:
+        stored_hash = user_data['pass_hash']
+        password_correcta = False
+
+        # Detectar tipo de hash y verificar
+        if es_hash_legacy(stored_hash):
+            # Hash legacy (SHA256) - verificar con método antiguo
+            password_hash_sha256 = hash_pwd(password)
+            password_correcta = (password_hash_sha256 == stored_hash)
+
+            # ✨ MIGRACIÓN AUTOMÁTICA ✨
+            # Si la contraseña es correcta, re-hashear con bcrypt
+            if password_correcta:
+                try:
+                    nuevo_hash_bcrypt = hash_password_seguro(password)
+                    usuarios_repo.actualizar_usuario(
+                        usuario,
+                        nuevo_hash_bcrypt,
+                        None,  # No cambiar rol
+                        None   # No cambiar estado activo
+                    )
+                    logger.info(f"🔐 Contraseña migrada a bcrypt | {usuario}")
+                    log_operacion("usuarios", "migrar_password", usuario,
+                                "Contraseña migrada de SHA256 a bcrypt")
+                except Exception as e:
+                    # Si falla la migración, continuar (login sigue siendo válido)
+                    logger.warning(f"⚠️ Falló migración de contraseña | {usuario} | {e}")
+
+        else:
+            # Hash moderno (bcrypt) - verificar con bcrypt
+            password_correcta = verificar_password(password, stored_hash)
+
+        # Resultado de autenticación
+        if not password_correcta:
             log_validacion("usuarios", "autenticar", f"Contraseña incorrecta: {usuario}")
             return False, "Usuario o contraseña incorrectos", None
 
         log_operacion("usuarios", "login", usuario, f"Inicio de sesión exitoso")
-        logger.info(f"Usuario autenticado | {usuario} | Rol: {user_data['rol']}")
+        logger.info(f"✅ Usuario autenticado | {usuario} | Rol: {user_data['rol']}")
 
         return True, "Inicio de sesión exitoso", {
             'usuario': user_data['usuario'],
@@ -131,7 +177,8 @@ def crear_usuario(usuario: str, password: str, rol: str = "almacen",
         # Normalizar y crear
         usuario = usuario.strip()
         rol = rol.strip().lower()
-        password_hash = hash_pwd(password)
+        # ✅ USAR BCRYPT para nuevos usuarios
+        password_hash = hash_password_seguro(password)
 
         usuarios_repo.crear_usuario(usuario, password_hash, rol, 1 if activo else 0)
 
@@ -141,7 +188,7 @@ def crear_usuario(usuario: str, password: str, rol: str = "almacen",
 
         return True, f"Usuario '{usuario}' creado correctamente"
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, f"Ya existe un usuario con el nombre '{usuario}'"
     except Exception as e:
         log_error_bd("usuarios", "crear_usuario", e)
@@ -163,7 +210,8 @@ def actualizar_usuario(usuario: str, password: Optional[str] = None,
             valido, error = validar_password(password)
             if not valido:
                 return False, error
-            password_hash = hash_pwd(password)
+            # ✅ USAR BCRYPT para actualización de contraseña
+            password_hash = hash_password_seguro(password)
 
         # Validar nuevo rol si se proporciona
         if rol:
@@ -220,7 +268,7 @@ def eliminar_usuario(usuario: str, usuario_eliminador: str = "admin") -> Tuple[b
 
         return True, f"Usuario '{usuario}' eliminado correctamente"
 
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return False, "No se puede eliminar el usuario debido a referencias en el sistema"
     except Exception as e:
         log_error_bd("usuarios", "eliminar_usuario", e)
@@ -269,9 +317,19 @@ def cambiar_password_propia(usuario: str, password_actual: str, password_nueva: 
         if not user_data['activo']:
             return False, "El usuario está desactivado"
 
-        # Verificar contraseña actual
-        password_hash_actual = hash_pwd(password_actual)
-        if password_hash_actual != user_data['pass_hash']:
+        # Verificar contraseña actual (soportar ambos formatos)
+        stored_hash = user_data['pass_hash']
+        password_actual_correcta = False
+
+        if es_hash_legacy(stored_hash):
+            # Hash legacy
+            password_hash_actual = hash_pwd(password_actual)
+            password_actual_correcta = (password_hash_actual == stored_hash)
+        else:
+            # Hash bcrypt
+            password_actual_correcta = verificar_password(password_actual, stored_hash)
+
+        if not password_actual_correcta:
             log_validacion("usuarios", "cambiar_password", f"Contraseña actual incorrecta: {usuario}")
             return False, "La contraseña actual es incorrecta"
 
@@ -280,10 +338,12 @@ def cambiar_password_propia(usuario: str, password_actual: str, password_nueva: 
         if not valido:
             return False, error
 
-        # Verificar que la nueva contraseña sea diferente
-        password_hash_nueva = hash_pwd(password_nueva)
-        if password_hash_nueva == password_hash_actual:
+        # Verificar que la nueva contraseña sea diferente de la actual
+        if password_nueva == password_actual:
             return False, "La nueva contraseña debe ser diferente a la actual"
+
+        # ✅ Hashear nueva contraseña con BCRYPT
+        password_hash_nueva = hash_password_seguro(password_nueva)
 
         # Actualizar contraseña
         usuarios_repo.actualizar_usuario(usuario, password_hash_nueva, None, None)

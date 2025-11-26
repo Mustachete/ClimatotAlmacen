@@ -203,7 +203,8 @@ def crear_recepcion_material(
     articulos: List[Dict[str, Any]],
     almacen_nombre: str,
     albaran: Optional[str],
-    usuario: str
+    usuario: str,
+    proveedor_id: Optional[int] = None
 ) -> Tuple[bool, str, Optional[List[int]]]:
     """
     Crea entradas de material (recepciones).
@@ -214,6 +215,7 @@ def crear_recepcion_material(
         almacen_nombre: Nombre del almacén destino
         albaran: Número de albarán
         usuario: Usuario que realiza la recepción
+        proveedor_id: ID del proveedor (opcional)
 
     Returns:
         Tupla (exito, mensaje, lista_ids)
@@ -248,6 +250,7 @@ def crear_recepcion_material(
                 'tipo': 'ENTRADA',
                 'fecha': fecha,
                 'articulo_id': art['articulo_id'],
+                'origen_id': proveedor_id,  # ID del proveedor
                 'destino_id': almacen_id,
                 'cantidad': art['cantidad'],
                 'coste_unit': art.get('coste_unit'),
@@ -516,6 +519,9 @@ def obtener_movimientos_filtrados(
     articulo_id: Optional[int] = None,
     almacen_id: Optional[int] = None,
     operario_id: Optional[int] = None,
+    articulo_texto: Optional[str] = None,
+    ot: Optional[str] = None,
+    responsable: Optional[str] = None,
     limit: int = 1000
 ) -> List[Dict[str, Any]]:
     """
@@ -528,6 +534,9 @@ def obtener_movimientos_filtrados(
         articulo_id: ID del artículo
         almacen_id: ID del almacén
         operario_id: ID del operario
+        articulo_texto: Texto para buscar en artículo (nombre, EAN, ref)
+        ot: Número de orden de trabajo
+        responsable: Nombre del responsable
         limit: Límite de resultados
 
     Returns:
@@ -541,6 +550,9 @@ def obtener_movimientos_filtrados(
             articulo_id=articulo_id,
             almacen_id=almacen_id,
             operario_id=operario_id,
+            articulo_texto=articulo_texto,
+            ot=ot,
+            responsable=responsable,
             limit=limit
         )
     except Exception as e:

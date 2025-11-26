@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QIcon
-from src.core.db_utils import get_con
+from src.repos import articulos_repo
 
 
 class BuscadorArticulos(QWidget):
@@ -165,94 +165,55 @@ class BuscadorArticulos(QWidget):
     def buscar_sugerencias(self):
         """Busca artículos y muestra sugerencias"""
         texto = self.txt_buscar.text().strip()
-        
+
         if len(texto) < 2:
             return
-        
+
         try:
-            con = get_con()
-            cur = con.cursor()
-            
-            # Construir query según filtros
-            query = """
-                SELECT a.id, a.nombre, a.u_medida, a.ean, a.ref_proveedor, a.coste, a.pvp_sin, 
-                       a.proveedor_id, a.familia_id, a.ubicacion_id, a.marca
-                FROM articulos a
-                WHERE a.activo=1 AND (
-                    a.ean LIKE ? OR
-                    a.ref_proveedor LIKE ? OR
-                    a.nombre LIKE ? OR
-                    a.palabras_clave LIKE ?
-                )
-            """
-            params = [f"%{texto}%"] * 4
-            
-            # Agregar filtro de proveedor si existe
-            if self.filtro_proveedor_id:
-                query += " AND a.proveedor_id=?"
-                params.append(self.filtro_proveedor_id)
-            
-            # Agregar filtro de almacén (con stock) si existe
-            if self.filtro_almacen_id:
-                query += """ AND EXISTS (
-                    SELECT 1 FROM vw_stock v 
-                    WHERE v.articulo_id=a.id AND v.almacen_id=? AND v.delta > 0
-                )"""
-                params.append(self.filtro_almacen_id)
-            
-            query += """
-                ORDER BY 
-                    CASE 
-                        WHEN a.ean = ? THEN 1
-                        WHEN a.ref_proveedor = ? THEN 2
-                        WHEN a.nombre LIKE ? THEN 3
-                        ELSE 4
-                    END
-                LIMIT 10
-            """
-            params.extend([texto, texto, f"{texto}%"])
-            
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            con.close()
-            
+            articulos = articulos_repo.buscar_articulos_completo(
+                texto=texto,
+                filtro_proveedor_id=self.filtro_proveedor_id,
+                filtro_almacen_id=self.filtro_almacen_id,
+                limit=10
+            )
+
             # Mostrar sugerencias
             self.lista_sugerencias.clear()
-            
-            if not rows:
+
+            if not articulos:
                 self.lbl_estado.setText("❌ No se encontraron artículos")
                 self.lbl_estado.setVisible(True)
                 self.lista_sugerencias.setVisible(False)
                 return
-            
+
             self.lbl_estado.setVisible(False)
-            
-            for row in rows:
-                texto_item = f"{row[1]}"
-                if row[3]:  # EAN
-                    texto_item += f" | EAN: {row[3]}"
-                if row[4]:  # Ref
-                    texto_item += f" | Ref: {row[4]}"
-                texto_item += f" | {row[2]}"
-                
+
+            for art in articulos:
+                texto_item = f"{art['nombre']}"
+                if art['ean']:
+                    texto_item += f" | EAN: {art['ean']}"
+                if art['ref_proveedor']:
+                    texto_item += f" | Ref: {art['ref_proveedor']}"
+                texto_item += f" | {art['u_medida']}"
+
                 item = QListWidgetItem(texto_item)
                 item.setData(Qt.UserRole, {
-                    'id': row[0],
-                    'nombre': row[1],
-                    'u_medida': row[2],
-                    'ean': row[3],
-                    'ref': row[4],
-                    'coste': row[5] or 0.0,
-                    'pvp': row[6] or 0.0,
-                    'proveedor_id': row[7],
-                    'familia_id': row[8],
-                    'ubicacion_id': row[9],
-                    'marca': row[10]
+                    'id': art['id'],
+                    'nombre': art['nombre'],
+                    'u_medida': art['u_medida'],
+                    'ean': art['ean'],
+                    'ref': art['ref_proveedor'],
+                    'coste': art['coste'] or 0.0,
+                    'pvp': art['pvp_sin'] or 0.0,
+                    'proveedor_id': art['proveedor_id'],
+                    'familia_id': art['familia_id'],
+                    'ubicacion_id': art['ubicacion_id'],
+                    'marca': art['marca']
                 })
                 self.lista_sugerencias.addItem(item)
-            
+
             self.lista_sugerencias.setVisible(True)
-            
+
         except Exception as e:
             self.lbl_estado.setText(f"❌ Error: {e}")
             self.lbl_estado.setVisible(True)
@@ -260,65 +221,42 @@ class BuscadorArticulos(QWidget):
     def buscar_exacto(self):
         """Busca coincidencia exacta al presionar Enter"""
         texto = self.txt_buscar.text().strip()
-        
+
         if not texto:
             return
-        
+
         try:
-            con = get_con()
-            cur = con.cursor()
-            
-            # Buscar coincidencia EXACTA (primero por EAN, luego por ref)
-            query = """
-                SELECT a.id, a.nombre, a.u_medida, a.ean, a.ref_proveedor, a.coste, a.pvp_sin,
-                       a.proveedor_id, a.familia_id, a.ubicacion_id, a.marca
-                FROM articulos a
-                WHERE a.activo=1 AND (a.ean=? OR a.ref_proveedor=?)
-            """
-            params = [texto, texto]
-            
-            if self.filtro_proveedor_id:
-                query += " AND a.proveedor_id=?"
-                params.append(self.filtro_proveedor_id)
-            
-            if self.filtro_almacen_id:
-                query += """ AND EXISTS (
-                    SELECT 1 FROM vw_stock v 
-                    WHERE v.articulo_id=a.id AND v.almacen_id=? AND v.delta > 0
-                )"""
-                params.append(self.filtro_almacen_id)
-            
-            query += " LIMIT 1"
-            
-            cur.execute(query, params)
-            row = cur.fetchone()
-            con.close()
-            
-            if row:
+            articulo = articulos_repo.buscar_articulo_exacto(
+                texto=texto,
+                filtro_proveedor_id=self.filtro_proveedor_id,
+                filtro_almacen_id=self.filtro_almacen_id
+            )
+
+            if articulo:
                 # ✅ ENCONTRADO - Emitir señal
-                articulo = {
-                    'id': row[0],
-                    'nombre': row[1],
-                    'u_medida': row[2],
-                    'ean': row[3],
-                    'ref': row[4],
-                    'coste': row[5] or 0.0,
-                    'pvp': row[6] or 0.0,
-                    'proveedor_id': row[7],
-                    'familia_id': row[8],
-                    'ubicacion_id': row[9],
-                    'marca': row[10]
+                articulo_emitir = {
+                    'id': articulo['id'],
+                    'nombre': articulo['nombre'],
+                    'u_medida': articulo['u_medida'],
+                    'ean': articulo['ean'],
+                    'ref': articulo['ref_proveedor'],
+                    'coste': articulo['coste'] or 0.0,
+                    'pvp': articulo['pvp_sin'] or 0.0,
+                    'proveedor_id': articulo['proveedor_id'],
+                    'familia_id': articulo['familia_id'],
+                    'ubicacion_id': articulo['ubicacion_id'],
+                    'marca': articulo['marca']
                 }
-                self.articulo_actual = articulo
-                self.articuloSeleccionado.emit(articulo)
-                self.lbl_estado.setText(f"✅ {row[1]}")
+                self.articulo_actual = articulo_emitir
+                self.articuloSeleccionado.emit(articulo_emitir)
+                self.lbl_estado.setText(f"✅ {articulo['nombre']}")
                 self.lbl_estado.setStyleSheet("color: #16a34a; font-size: 12px; font-weight: bold;")
                 self.lbl_estado.setVisible(True)
                 self.lista_sugerencias.setVisible(False)
             else:
                 # ❌ NO ENCONTRADO - Ofrecer crear
                 self.ofrecer_crear_articulo(texto)
-        
+
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al buscar:\n{e}")
     
@@ -444,14 +382,9 @@ class DialogoBusquedaAvanzada(QDialog):
     def cargar_familias(self):
         """Carga las familias disponibles"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("SELECT id, nombre FROM familias ORDER BY nombre")
-            rows = cur.fetchall()
-            con.close()
-
-            for row in rows:
-                self.cmb_familia.addItem(row[1], row[0])
+            familias = articulos_repo.get_familias()
+            for fam in familias:
+                self.cmb_familia.addItem(fam['nombre'], fam['id'])
         except Exception as e:
             from src.core.logger import logger
             logger.exception(f"Error al cargar familias en buscador avanzado: {e}")
@@ -460,68 +393,38 @@ class DialogoBusquedaAvanzada(QDialog):
     def cargar_articulos(self, filtro_texto="", filtro_familia=None):
         """Carga artículos con filtros"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            
-            query = """
-                SELECT a.id, a.nombre, a.ean, a.ref_proveedor, a.u_medida,
-                       a.coste, a.pvp_sin, a.proveedor_id, a.familia_id, a.ubicacion_id, a.marca
-                FROM articulos a
-                WHERE a.activo=1
-            """
-            params = []
-            
-            if filtro_texto:
-                query += """ AND (
-                    a.nombre LIKE ? OR a.ean LIKE ? OR a.ref_proveedor LIKE ? OR a.palabras_clave LIKE ?
-                )"""
-                params.extend([f"%{filtro_texto}%"] * 4)
-            
-            if filtro_familia:
-                query += " AND a.familia_id=?"
-                params.append(filtro_familia)
-            
-            if self.filtro_proveedor:
-                query += " AND a.proveedor_id=?"
-                params.append(self.filtro_proveedor)
-            
-            if self.filtro_almacen:
-                query += """ AND EXISTS (
-                    SELECT 1 FROM vw_stock v 
-                    WHERE v.articulo_id=a.id AND v.almacen_id=? AND v.delta > 0
-                )"""
-                params.append(self.filtro_almacen)
-            
-            query += " ORDER BY a.nombre LIMIT 200"
-            
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            con.close()
-            
-            self.tabla.setRowCount(len(rows))
-            
-            for i, row in enumerate(rows):
-                self.tabla.setItem(i, 0, QTableWidgetItem(str(row[0])))
-                self.tabla.setItem(i, 1, QTableWidgetItem(row[1]))
-                self.tabla.setItem(i, 2, QTableWidgetItem(row[2] or ""))
-                self.tabla.setItem(i, 3, QTableWidgetItem(row[3] or ""))
-                self.tabla.setItem(i, 4, QTableWidgetItem(row[4]))
-                
+            articulos = articulos_repo.buscar_articulos_completo(
+                texto=filtro_texto,
+                filtro_proveedor_id=self.filtro_proveedor,
+                filtro_almacen_id=self.filtro_almacen,
+                filtro_familia_id=filtro_familia,
+                limit=200
+            )
+
+            self.tabla.setRowCount(len(articulos))
+
+            for i, art in enumerate(articulos):
+                self.tabla.setItem(i, 0, QTableWidgetItem(str(art['id'])))
+                self.tabla.setItem(i, 1, QTableWidgetItem(art['nombre']))
+                self.tabla.setItem(i, 2, QTableWidgetItem(art['ean'] or ""))
+                self.tabla.setItem(i, 3, QTableWidgetItem(art['ref_proveedor'] or ""))
+                self.tabla.setItem(i, 4, QTableWidgetItem(art['u_medida']))
+
                 # Guardar datos completos
                 self.tabla.item(i, 0).setData(Qt.UserRole, {
-                    'id': row[0],
-                    'nombre': row[1],
-                    'ean': row[2],
-                    'ref': row[3],
-                    'u_medida': row[4],
-                    'coste': row[5] or 0.0,
-                    'pvp': row[6] or 0.0,
-                    'proveedor_id': row[7],
-                    'familia_id': row[8],
-                    'ubicacion_id': row[9],
-                    'marca': row[10]
+                    'id': art['id'],
+                    'nombre': art['nombre'],
+                    'ean': art['ean'],
+                    'ref': art['ref_proveedor'],
+                    'u_medida': art['u_medida'],
+                    'coste': art['coste'] or 0.0,
+                    'pvp': art['pvp_sin'] or 0.0,
+                    'proveedor_id': art['proveedor_id'],
+                    'familia_id': art['familia_id'],
+                    'ubicacion_id': art['ubicacion_id'],
+                    'marca': art['marca']
                 })
-        
+
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar artículos:\n{e}")
     

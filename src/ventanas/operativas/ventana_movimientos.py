@@ -10,11 +10,12 @@ from PySide6.QtGui import QShortcut, QKeySequence
 import datetime
 from src.ui.estilos import ESTILO_VENTANA
 from src.ui.widgets_personalizados import SpinBoxClimatot, crear_boton_quitar_centrado
-from src.core.db_utils import get_con
+from src.ui.combo_loaders import ComboLoader
+from src.ui.dialog_manager import DialogManager
 from src.core.logger import logger
 from src.core.error_handler import handle_db_errors, validate_field, show_warning, show_info
 from src.services import movimientos_service, historial_service
-from src.repos import movimientos_repo
+from src.repos import movimientos_repo, articulos_repo
 from src.services.furgonetas_service import list_furgonetas
 from src.core.session_manager import session_manager
 
@@ -285,19 +286,17 @@ class VentanaMovimientos(QWidget):
 
     @handle_db_errors("cargar_operarios")
     def cargar_operarios(self):
-        """Carga los operarios activos"""
-        try:
-            operarios = movimientos_repo.get_operarios_activos()
-
-            self.cmb_operario.addItem("(Seleccione operario)", None)
-            for op in operarios:
-                emoji = "👷" if op['rol_operario'] == "oficial" else "🔨"
-                texto = f"{emoji} {op['nombre']} ({op['rol_operario']})"
-                self.cmb_operario.addItem(texto, op['id'])
-
-        except Exception as e:
-            logger.error(f"Error al cargar operarios: {e}")
-            QMessageBox.critical(self, "❌ Error", f"Error al cargar operarios:\n{e}")
+        """Carga los operarios activos usando ComboLoader"""
+        exito = ComboLoader.cargar_operarios(
+            self.cmb_operario,
+            movimientos_repo.get_operarios_activos,
+            opcion_vacia=True,
+            texto_vacio="(Seleccione operario)",
+            con_emoji=True
+        )
+        if not exito:
+            # Manejo de error silencioso - ya está logueado en ComboLoader
+            pass
             
     def cambio_operario(self):
         """Al cambiar de operario, busca su furgoneta asignada"""
@@ -426,7 +425,7 @@ class VentanaMovimientos(QWidget):
             # Conectar botones
             btn_cancelar.clicked.connect(dialogo.reject)
 
-            def asignar():
+            def asignar(forzar_asignacion=False):
                 furgoneta_id = cmb_furgoneta.currentData()
                 if not furgoneta_id:
                     QMessageBox.warning(dialogo, "⚠️ Validación", "Debes seleccionar una furgoneta.")
@@ -444,7 +443,7 @@ class VentanaMovimientos(QWidget):
 
                 try:
                     from src.services.furgonetas_service import asignar_furgoneta_a_operario
-                    asignar_furgoneta_a_operario(operario_id, furgoneta_id, fecha, turno)
+                    asignar_furgoneta_a_operario(operario_id, furgoneta_id, fecha, turno, forzar=forzar_asignacion)
 
                     turno_texto = {'completo': 'día completo', 'manana': 'turno mañana', 'tarde': 'turno tarde'}[turno]
                     QMessageBox.information(
@@ -457,6 +456,46 @@ class VentanaMovimientos(QWidget):
                     dialogo.accept()
                     # Actualizar la etiqueta de furgoneta
                     self.cambio_operario()
+                except ValueError as e:
+                    error_msg = str(e)
+                    # Detectar conflicto de día completo
+                    if error_msg.startswith("CONFLICTO_DIA_COMPLETO"):
+                        partes = error_msg.split("|")
+                        if len(partes) == 3:
+                            furgoneta_actual = partes[1]
+                            furgoneta_nueva_id = partes[2]
+
+                            # Obtener nombre de la furgoneta nueva
+                            furgoneta_nueva = next((f for f in furgonetas if f['id'] == int(furgoneta_nueva_id)), None)
+                            if furgoneta_nueva:
+                                numero = furgoneta_nueva.get('numero')
+                                matricula = furgoneta_nueva.get('matricula', '')
+                                if numero:
+                                    furgoneta_nueva_nombre = f"Furgoneta {numero} - {matricula}"
+                                else:
+                                    furgoneta_nueva_nombre = matricula
+                            else:
+                                furgoneta_nueva_nombre = 'Desconocida'
+
+                            respuesta = QMessageBox.question(
+                                dialogo,
+                                "⚠️ Confirmar Cambio de Furgoneta",
+                                f"El operario {operario_nombre} ya tiene asignada la furgoneta:\n\n"
+                                f"  🚚 {furgoneta_actual} (Día completo)\n\n"
+                                f"¿Deseas cambiarla por la furgoneta seleccionada?\n\n"
+                                f"  🚚 {furgoneta_nueva_nombre} (Día completo)\n\n"
+                                f"Esto eliminará la asignación anterior.",
+                                QMessageBox.Yes | QMessageBox.No,
+                                QMessageBox.No
+                            )
+
+                            if respuesta == QMessageBox.Yes:
+                                # Reintentar con forzar=True
+                                asignar(forzar_asignacion=True)
+                        else:
+                            QMessageBox.critical(dialogo, "❌ Error", f"Error de formato en conflicto:\n{e}")
+                    else:
+                        QMessageBox.critical(dialogo, "❌ Error", f"Error de validación:\n{e}")
                 except Exception as e:
                     logger.exception(f"Error al asignar furgoneta: {e}")
                     QMessageBox.critical(dialogo, "❌ Error", f"Error al asignar:\n{e}")
@@ -522,28 +561,7 @@ class VentanaMovimientos(QWidget):
             return
 
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("""
-                SELECT id, nombre, u_medida, ean, ref_proveedor
-                FROM articulos
-                WHERE activo=1 AND (
-                    ean LIKE ? OR
-                    ref_proveedor LIKE ? OR
-                    nombre LIKE ? OR
-                    palabras_clave LIKE ?
-                )
-                ORDER BY
-                    CASE
-                        WHEN ean = ? THEN 1
-                        WHEN ref_proveedor = ? THEN 2
-                        WHEN nombre LIKE ? THEN 3
-                        ELSE 4
-                    END
-                LIMIT 10
-            """, (f"%{texto}%", f"%{texto}%", f"%{texto}%", f"%{texto}%", texto, texto, f"{texto}%"))
-            rows = cur.fetchall()
-            con.close()
+            rows = articulos_repo.buscar_articulos_por_texto(texto, limit=10)
 
             if not rows:
                 self.lbl_sugerencia.setText("❌ No se encontraron artículos")
@@ -555,28 +573,28 @@ class VentanaMovimientos(QWidget):
             self.lbl_sugerencia.setText("")
 
             # Si se presionó Enter y hay coincidencia exacta por EAN/Ref, agregar automáticamente
-            if len(rows) == 1 and (rows[0][3] == texto or rows[0][4] == texto):
-                self.agregar_articulo(rows[0][0], rows[0][1], rows[0][2])
+            if len(rows) == 1 and (rows[0]['ean'] == texto or rows[0]['ref_proveedor'] == texto):
+                self.agregar_articulo(rows[0]['id'], rows[0]['nombre'], rows[0]['u_medida'])
                 self.txt_buscar.clear()
-                self.lbl_sugerencia.setText(f"✅ {rows[0][1]} agregado")
+                self.lbl_sugerencia.setText(f"✅ {rows[0]['nombre']} agregado")
                 self.lista_sugerencias.setVisible(False)
                 return
 
             # Mostrar múltiples sugerencias clickeables
             for row in rows:
-                texto_item = f"{row[1]}"
-                if row[3]:  # EAN
-                    texto_item += f" | EAN: {row[3]}"
-                if row[4]:  # Ref
-                    texto_item += f" | Ref: {row[4]}"
-                texto_item += f" | {row[2]}"
+                texto_item = f"{row['nombre']}"
+                if row['ean']:  # EAN
+                    texto_item += f" | EAN: {row['ean']}"
+                if row['ref_proveedor']:  # Ref
+                    texto_item += f" | Ref: {row['ref_proveedor']}"
+                texto_item += f" | {row['u_medida']}"
 
                 item = QListWidgetItem(texto_item)
                 # Guardar datos del artículo en el item
                 item.setData(Qt.UserRole, {
-                    'id': row[0],
-                    'nombre': row[1],
-                    'u_medida': row[2]
+                    'id': row['id'],
+                    'nombre': row['nombre'],
+                    'u_medida': row['u_medida']
                 })
                 self.lista_sugerencias.addItem(item)
 
@@ -638,9 +656,8 @@ class VentanaMovimientos(QWidget):
             self.tabla_articulos.setItem(i, 2, QTableWidgetItem(art['u_medida']))
             self.tabla_articulos.setItem(i, 3, QTableWidgetItem(f"{art['cantidad']:.2f}"))
             
-            # Botón quitar (centrado)
-            contenedor, btn_quitar = crear_boton_quitar_centrado()
-            btn_quitar.clicked.connect(lambda checked, idx=i: self.quitar_articulo(idx))
+            # Botón quitar (centrado con callback ya conectado)
+            contenedor = crear_boton_quitar_centrado(lambda checked=False, idx=i: self.quitar_articulo(idx))
             self.tabla_articulos.setCellWidget(i, 4, contenedor)
     
     def quitar_articulo(self, index):

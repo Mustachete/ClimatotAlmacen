@@ -19,11 +19,17 @@ build/
 !.vscode/launch.json
 !.vscode/extensions.json
 
+# Configuración con credenciales - NUNCA SUBIR
+.env
+config.ini
+.claude/settings.local.json
+
 # Base de datos - NO SUBIR DATOS REALES
 db/*.db
 db/*.db-journal
 db/*_pre_restore_*.db
 !db/schema.sql
+!db/schema_postgres.sql
 
 # Logs
 logs/

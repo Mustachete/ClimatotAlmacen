@@ -273,13 +273,17 @@ class BotonQuitar(QPushButton):
         self.setStyleSheet(ESTILO_BOTON_QUITAR)
 
 
-def crear_boton_quitar_centrado(parent=None):
+def crear_boton_quitar_centrado(callback, parent=None):
     """
-    Crea un botón Quitar dentro de un contenedor centrado.
+    Crea un botón Quitar dentro de un contenedor centrado con callback conectado.
     Usar este helper para insertar en celdas de tabla con setCellWidget.
 
+    Args:
+        callback: Función a llamar cuando se hace click en el botón
+        parent: Widget padre opcional
+
     Returns:
-        tuple: (widget_contenedor, boton) - El widget para setCellWidget y el botón para conectar señales
+        QWidget: El widget contenedor listo para setCellWidget
     """
     # Crear contenedor
     contenedor = QWidget(parent)
@@ -293,10 +297,14 @@ def crear_boton_quitar_centrado(parent=None):
     # Crear botón
     boton = BotonQuitar()
 
+    # Conectar callback
+    if callback:
+        boton.clicked.connect(callback)
+
     # Añadir botón al layout
     layout.addWidget(boton)
 
     # Añadir espaciador derecho
     layout.addStretch()
 
-    return contenedor, boton
+    return contenedor

@@ -8,10 +8,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from pathlib import Path
-import sqlite3
 import datetime
 from src.ui.estilos import ESTILO_VENTANA
-from src.core.db_utils import get_con
+from src.services import articulos_service, stock_service, movimientos_service
+from src.repos import articulos_repo, stock_repo, movimientos_repo
 
 class VentanaFichaArticulo(QWidget):
     def __init__(self, parent=None, articulo_id=None):
@@ -66,7 +66,12 @@ class VentanaFichaArticulo(QWidget):
         self.tab_stats = QWidget()
         self.crear_tab_estadisticas()
         self.tabs.addTab(self.tab_stats, "📈 Estadísticas")
-        
+
+        # Tab 5: Últimas Entradas
+        self.tab_entradas = QWidget()
+        self.crear_tab_entradas()
+        self.tabs.addTab(self.tab_entradas, "📦 Últimas Entradas")
+
         layout.addWidget(self.tabs)
         
         # Botón volver
@@ -82,29 +87,20 @@ class VentanaFichaArticulo(QWidget):
     def cargar_articulos_combo(self):
         """Carga todos los artículos en el combo"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("""
-                SELECT id, nombre, ean, ref_proveedor
-                FROM articulos
-                WHERE activo = 1
-                ORDER BY nombre
-            """)
-            rows = cur.fetchall()
-            con.close()
-            
+            articulos = articulos_repo.get_todos(solo_activos=True, limit=10000)
+
             self.cmb_articulo.addItem("(Seleccione un artículo)", None)
-            
-            for row in rows:
+
+            for art in articulos:
                 # Texto: Nombre [EAN] [REF]
-                texto = row[1]
-                if row[2]:
-                    texto += f" [EAN: {row[2]}]"
-                if row[3]:
-                    texto += f" [REF: {row[3]}]"
-                
-                self.cmb_articulo.addItem(texto, row[0])
-            
+                texto = art['nombre']
+                if art['ean']:
+                    texto += f" [EAN: {art['ean']}]"
+                if art['ref_proveedor']:
+                    texto += f" [REF: {art['ref_proveedor']}]"
+
+                self.cmb_articulo.addItem(texto, art['id'])
+
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar artículos:\n{e}")
     
@@ -127,6 +123,7 @@ class VentanaFichaArticulo(QWidget):
         self.actualizar_stock_almacenes()
         self.actualizar_historial()
         self.actualizar_estadisticas()
+        self.actualizar_ultimas_entradas()
     
     # ========================================
     # TAB 1: INFORMACIÓN GENERAL
@@ -228,68 +225,55 @@ class VentanaFichaArticulo(QWidget):
     def actualizar_info_general(self):
         """Actualiza la información general del artículo"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("""
-                SELECT 
-                    a.nombre, a.ean, a.ref_proveedor,
-                    f.nombre as familia, u.nombre as ubicacion,
-                    p.nombre as proveedor, a.marca,
-                    a.u_medida, a.min_alerta,
-                    a.coste, a.pvp_sin, a.iva,
-                    a.palabras_clave,
-                    COALESCE((SELECT SUM(delta) FROM vw_stock WHERE articulo_id = a.id), 0) as stock_total
-                FROM articulos a
-                LEFT JOIN familias f ON a.familia_id = f.id
-                LEFT JOIN ubicaciones u ON a.ubicacion_id = u.id
-                LEFT JOIN proveedores p ON a.proveedor_id = p.id
-                WHERE a.id = ?
-            """, (self.articulo_id,))
-            row = cur.fetchone()
-            con.close()
-            
-            if row:
-                # Datos básicos
-                self.lbl_nombre.setText(f"<b>{row[0]}</b>")
-                self.lbl_ean.setText(row[1] or "-")
-                self.lbl_ref.setText(row[2] or "-")
-                self.lbl_familia.setText(row[3] or "-")
-                self.lbl_ubicacion.setText(row[4] or "-")
-                
-                # Proveedor y marca
-                self.lbl_proveedor.setText(row[5] or "-")
-                self.lbl_marca.setText(row[6] or "-")
-                
-                # Stock y unidades
-                self.lbl_u_medida.setText(row[7] or "unidad")
-                stock_total = row[13]
-                min_alerta = row[8]
-                
-                self.lbl_stock_total.setText(f"<b>{stock_total:.2f}</b> {row[7]}")
-                self.lbl_min_alerta.setText(f"{min_alerta:.2f} {row[7]}")
-                
-                # Estado del stock con color
-                if stock_total < min_alerta:
-                    estado = "<span style='color: #dc2626; font-weight: bold;'>⚠️ BAJO MÍNIMO</span>"
-                elif stock_total == 0:
-                    estado = "<span style='color: #dc2626; font-weight: bold;'>❌ SIN STOCK</span>"
-                else:
-                    estado = "<span style='color: #059669; font-weight: bold;'>✅ OK</span>"
-                self.lbl_estado_stock.setText(estado)
-                
-                # Precios
-                coste = row[9] or 0
-                pvp_sin = row[10] or 0
-                iva = row[11] or 21
-                pvp_con = pvp_sin * (1 + iva / 100)
-                
-                self.lbl_coste.setText(f"€ {coste:.2f}")
-                self.lbl_pvp.setText(f"€ {pvp_sin:.2f}")
-                self.lbl_iva.setText(f"{iva:.0f}%")
-                self.lbl_pvp_iva.setText(f"<b>€ {pvp_con:.2f}</b>")
-                
-                # Palabras clave
-                self.txt_palabras.setPlainText(row[12] or "(Sin palabras clave)")
+            # Obtener info del artículo
+            articulo = articulos_repo.get_by_id(self.articulo_id)
+            if not articulo:
+                return
+
+            # Obtener stock total
+            stock_total = stock_repo.get_stock_total_articulo(self.articulo_id)
+
+            # Datos básicos
+            self.lbl_nombre.setText(f"<b>{articulo['nombre']}</b>")
+            self.lbl_ean.setText(articulo['ean'] or "-")
+            self.lbl_ref.setText(articulo['ref_proveedor'] or "-")
+            self.lbl_familia.setText(articulo['familia_nombre'] or "-")
+            self.lbl_ubicacion.setText(articulo['ubicacion_nombre'] or "-")
+
+            # Proveedor y marca
+            self.lbl_proveedor.setText(articulo['proveedor_nombre'] or "-")
+            self.lbl_marca.setText(articulo['marca'] or "-")
+
+            # Stock y unidades
+            u_medida = articulo['u_medida'] or "unidad"
+            min_alerta = articulo['min_alerta']
+
+            self.lbl_u_medida.setText(u_medida)
+            self.lbl_stock_total.setText(f"<b>{stock_total:.2f}</b> {u_medida}")
+            self.lbl_min_alerta.setText(f"{min_alerta:.2f} {u_medida}")
+
+            # Estado del stock con color
+            if stock_total < min_alerta:
+                estado = "<span style='color: #dc2626; font-weight: bold;'>⚠️ BAJO MÍNIMO</span>"
+            elif stock_total == 0:
+                estado = "<span style='color: #dc2626; font-weight: bold;'>❌ SIN STOCK</span>"
+            else:
+                estado = "<span style='color: #059669; font-weight: bold;'>✅ OK</span>"
+            self.lbl_estado_stock.setText(estado)
+
+            # Precios
+            coste = articulo['coste'] or 0
+            pvp_sin = articulo['pvp_sin'] or 0
+            iva = articulo['iva'] or 21
+            pvp_con = pvp_sin * (1 + iva / 100)
+
+            self.lbl_coste.setText(f"€ {coste:.2f}")
+            self.lbl_pvp.setText(f"€ {pvp_sin:.2f}")
+            self.lbl_iva.setText(f"{iva:.0f}%")
+            self.lbl_pvp_iva.setText(f"<b>€ {pvp_con:.2f}</b>")
+
+            # Palabras clave
+            self.txt_palabras.setPlainText(articulo['palabras_clave'] or "(Sin palabras clave)")
                 
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar información:\n{e}")
@@ -320,33 +304,20 @@ class VentanaFichaArticulo(QWidget):
     def actualizar_stock_almacenes(self):
         """Actualiza el stock por almacén"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("""
-                SELECT 
-                    alm.nombre,
-                    COALESCE(SUM(v.delta), 0) as stock
-                FROM almacenes alm
-                LEFT JOIN vw_stock v ON alm.id = v.almacen_id AND v.articulo_id = ?
-                GROUP BY alm.id, alm.nombre
-                HAVING stock != 0
-                ORDER BY alm.nombre
-            """, (self.articulo_id,))
-            rows = cur.fetchall()
-            con.close()
-            
-            self.tabla_stock.setRowCount(len(rows))
-            
-            for i, row in enumerate(rows):
+            almacenes = stock_repo.get_stock_articulo_por_almacen(self.articulo_id)
+
+            self.tabla_stock.setRowCount(len(almacenes))
+
+            for i, alm in enumerate(almacenes):
                 # Almacén
-                self.tabla_stock.setItem(i, 0, QTableWidgetItem(row[0]))
-                
+                self.tabla_stock.setItem(i, 0, QTableWidgetItem(alm['almacen']))
+
                 # Stock
-                stock = row[1]
+                stock = alm['stock']
                 item_stock = QTableWidgetItem(f"{stock:.2f}")
                 item_stock.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.tabla_stock.setItem(i, 1, item_stock)
-                
+
                 # Estado visual
                 if stock > 0:
                     estado = "✅ Disponible"
@@ -354,7 +325,7 @@ class VentanaFichaArticulo(QWidget):
                 else:
                     estado = "❌ Vacío"
                     color = QColor("#fee2e2")
-                
+
                 item_estado = QTableWidgetItem(estado)
                 item_estado.setBackground(color)
                 item_estado.setTextAlignment(Qt.AlignCenter)
@@ -415,56 +386,35 @@ class VentanaFichaArticulo(QWidget):
     def actualizar_historial(self):
         """Actualiza el historial de movimientos"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            
-            query = """
-                SELECT 
-                    m.fecha,
-                    m.tipo,
-                    alm_origen.nombre as origen,
-                    alm_destino.nombre as destino,
-                    m.cantidad,
-                    m.ot,
-                    m.responsable,
-                    m.motivo
-                FROM movimientos m
-                LEFT JOIN almacenes alm_origen ON m.origen_id = alm_origen.id
-                LEFT JOIN almacenes alm_destino ON m.destino_id = alm_destino.id
-                WHERE m.articulo_id = ?
-            """
-            
-            params = [self.articulo_id]
-            
-            # Filtro de tipo
+            # Determinar filtros
+            tipo_filtro = None
             if self.cmb_tipo_hist.currentIndex() > 0:
-                query += " AND m.tipo = ?"
-                params.append(self.cmb_tipo_hist.currentText())
-            
-            query += " ORDER BY m.fecha DESC, m.id DESC"
-            
-            # Límite
-            limite = self.cmb_limite.currentText()
-            if limite != "Todos":
-                query += f" LIMIT {limite}"
-            
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            con.close()
-            
-            self.tabla_historial.setRowCount(len(rows))
-            
-            for i, row in enumerate(rows):
+                tipo_filtro = self.cmb_tipo_hist.currentText()
+
+            # Determinar límite
+            limite_str = self.cmb_limite.currentText()
+            limite = 10000 if limite_str == "Todos" else int(limite_str)
+
+            # Obtener movimientos
+            movimientos = movimientos_repo.get_movimientos_articulo(
+                articulo_id=self.articulo_id,
+                tipo=tipo_filtro,
+                limit=limite
+            )
+
+            self.tabla_historial.setRowCount(len(movimientos))
+
+            for i, mov in enumerate(movimientos):
                 # Fecha
                 try:
-                    fecha_obj = datetime.datetime.strptime(row[0], "%Y-%m-%d")
+                    fecha_obj = datetime.datetime.strptime(mov['fecha'], "%Y-%m-%d")
                     fecha_str = fecha_obj.strftime("%d/%m/%Y")
-                except:
-                    fecha_str = row[0]
+                except (ValueError, TypeError):
+                    fecha_str = mov['fecha']
                 self.tabla_historial.setItem(i, 0, QTableWidgetItem(fecha_str))
-                
+
                 # Tipo con color
-                tipo = row[1]
+                tipo = mov['tipo']
                 item_tipo = QTableWidgetItem(tipo)
                 if tipo == "ENTRADA":
                     item_tipo.setBackground(QColor("#d1fae5"))
@@ -477,26 +427,26 @@ class VentanaFichaArticulo(QWidget):
                 elif tipo == "DEVOLUCION":
                     item_tipo.setBackground(QColor("#fce7f3"))
                 self.tabla_historial.setItem(i, 1, item_tipo)
-                
+
                 # Origen
-                self.tabla_historial.setItem(i, 2, QTableWidgetItem(row[2] or "-"))
-                
+                self.tabla_historial.setItem(i, 2, QTableWidgetItem(mov['origen_nombre'] or "-"))
+
                 # Destino
-                self.tabla_historial.setItem(i, 3, QTableWidgetItem(row[3] or "-"))
-                
+                self.tabla_historial.setItem(i, 3, QTableWidgetItem(mov['destino_nombre'] or "-"))
+
                 # Cantidad
-                item_cant = QTableWidgetItem(f"{row[4]:.2f}")
+                item_cant = QTableWidgetItem(f"{mov['cantidad']:.2f}")
                 item_cant.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.tabla_historial.setItem(i, 4, item_cant)
-                
+
                 # OT
-                self.tabla_historial.setItem(i, 5, QTableWidgetItem(row[5] or "-"))
-                
+                self.tabla_historial.setItem(i, 5, QTableWidgetItem(mov['ot'] or "-"))
+
                 # Responsable
-                self.tabla_historial.setItem(i, 6, QTableWidgetItem(row[6] or "-"))
-                
+                self.tabla_historial.setItem(i, 6, QTableWidgetItem(mov['responsable'] or "-"))
+
                 # Motivo
-                self.tabla_historial.setItem(i, 7, QTableWidgetItem(row[7] or "-"))
+                self.tabla_historial.setItem(i, 7, QTableWidgetItem(mov['motivo'] or "-"))
             
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar historial:\n{e}")
@@ -569,63 +519,129 @@ class VentanaFichaArticulo(QWidget):
     def actualizar_estadisticas(self):
         """Actualiza las estadísticas del artículo"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            
+            stats = movimientos_repo.get_estadisticas_articulo(self.articulo_id)
+
             # Resumen total
-            cur.execute("""
-                SELECT 
-                    SUM(CASE WHEN tipo = 'ENTRADA' THEN cantidad ELSE 0 END) as entradas,
-                    SUM(CASE WHEN tipo IN ('IMPUTACION', 'PERDIDA', 'DEVOLUCION') THEN cantidad ELSE 0 END) as salidas,
-                    SUM(CASE WHEN tipo = 'TRASPASO' THEN cantidad ELSE 0 END) as traspasos,
-                    SUM(CASE WHEN tipo = 'IMPUTACION' THEN cantidad ELSE 0 END) as imputaciones,
-                    SUM(CASE WHEN tipo = 'PERDIDA' THEN cantidad ELSE 0 END) as perdidas
-                FROM movimientos
-                WHERE articulo_id = ?
-            """, (self.articulo_id,))
-            row = cur.fetchone()
-            
-            self.lbl_total_entradas.setText(f"<b>{row[0] or 0:.2f}</b>")
-            self.lbl_total_salidas.setText(f"<b>{row[1] or 0:.2f}</b>")
-            self.lbl_total_traspasos.setText(f"<b>{row[2] or 0:.2f}</b>")
-            self.lbl_total_imputaciones.setText(f"<b>{row[3] or 0:.2f}</b>")
-            self.lbl_total_perdidas.setText(f"<b>{row[4] or 0:.2f}</b>")
-            
+            totales = stats['totales']
+            self.lbl_total_entradas.setText(f"<b>{totales.get('entradas') or 0:.2f}</b>")
+            self.lbl_total_salidas.setText(f"<b>{totales.get('salidas') or 0:.2f}</b>")
+            self.lbl_total_traspasos.setText(f"<b>{totales.get('traspasos') or 0:.2f}</b>")
+            self.lbl_total_imputaciones.setText(f"<b>{totales.get('imputaciones') or 0:.2f}</b>")
+            self.lbl_total_perdidas.setText(f"<b>{totales.get('perdidas') or 0:.2f}</b>")
+
             # Últimos 30 días
-            fecha_30d = (datetime.date.today() - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-            
-            cur.execute("""
-                SELECT 
-                    SUM(CASE WHEN tipo = 'ENTRADA' THEN cantidad ELSE 0 END) as entradas,
-                    SUM(CASE WHEN tipo IN ('IMPUTACION', 'PERDIDA', 'DEVOLUCION') THEN cantidad ELSE 0 END) as consumo
-                FROM movimientos
-                WHERE articulo_id = ? AND fecha >= ?
-            """, (self.articulo_id, fecha_30d))
-            row = cur.fetchone()
-            
-            self.lbl_entradas_30d.setText(f"<b>{row[0] or 0:.2f}</b>")
-            self.lbl_consumo_30d.setText(f"<b>{row[1] or 0:.2f}</b>")
-            
+            stats_30d = stats['stats_30d']
+            self.lbl_entradas_30d.setText(f"<b>{stats_30d.get('entradas') or 0:.2f}</b>")
+            self.lbl_consumo_30d.setText(f"<b>{stats_30d.get('consumo') or 0:.2f}</b>")
+
             # Top OTs
-            cur.execute("""
-                SELECT ot, SUM(cantidad) as total
-                FROM movimientos
-                WHERE articulo_id = ? AND tipo = 'IMPUTACION' AND ot IS NOT NULL
-                GROUP BY ot
-                ORDER BY total DESC
-                LIMIT 5
-            """, (self.articulo_id,))
-            rows_ots = cur.fetchall()
-            
-            self.tabla_top_ots.setRowCount(len(rows_ots))
-            
-            for i, row in enumerate(rows_ots):
-                self.tabla_top_ots.setItem(i, 0, QTableWidgetItem(row[0]))
-                item_cant = QTableWidgetItem(f"{row[1]:.2f}")
+            top_ots = stats['top_ots']
+            self.tabla_top_ots.setRowCount(len(top_ots))
+
+            for i, ot in enumerate(top_ots):
+                self.tabla_top_ots.setItem(i, 0, QTableWidgetItem(ot['ot'] or ''))
+                item_cant = QTableWidgetItem(f"{ot.get('total') or 0:.2f}")
                 item_cant.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.tabla_top_ots.setItem(i, 1, item_cant)
-            
-            con.close()
-            
+
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar estadísticas:\n{e}")
+
+    # ========================================
+    # TAB 5: ÚLTIMAS ENTRADAS
+    # ========================================
+    def crear_tab_entradas(self):
+        """Crea el tab de últimas entradas desde proveedores"""
+        layout = QVBoxLayout(self.tab_entradas)
+
+        # Título
+        titulo = QLabel("📦 Últimas 50 Entradas desde Proveedores")
+        titulo.setStyleSheet("font-size: 14px; font-weight: bold; margin: 10px;")
+        layout.addWidget(titulo)
+
+        # Tabla de entradas
+        self.tabla_entradas = QTableWidget()
+        self.tabla_entradas.setColumnCount(5)
+        self.tabla_entradas.setHorizontalHeaderLabels([
+            "Fecha", "Cantidad", "Proveedor", "Albarán", "Coste Unit."
+        ])
+
+        # Configurar tabla
+        self.tabla_entradas.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tabla_entradas.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tabla_entradas.setAlternatingRowColors(True)
+
+        # Hacer la tabla ordenable por columnas
+        self.tabla_entradas.setSortingEnabled(True)
+
+        # Ajustar columnas
+        header = self.tabla_entradas.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Fecha
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Cantidad
+        header.setSectionResizeMode(2, QHeaderView.Stretch)            # Proveedor
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Albarán
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Coste
+
+        layout.addWidget(self.tabla_entradas)
+
+    def actualizar_ultimas_entradas(self):
+        """Actualiza la tabla de últimas entradas"""
+        try:
+            # Obtener últimas entradas del repositorio
+            entradas = articulos_repo.get_ultimas_entradas(self.articulo_id, limit=50)
+
+            # Limpiar tabla
+            self.tabla_entradas.setRowCount(0)
+            self.tabla_entradas.setSortingEnabled(False)  # Deshabilitar ordenación temporalmente
+
+            # Llenar tabla
+            self.tabla_entradas.setRowCount(len(entradas))
+
+            for i, entrada in enumerate(entradas):
+                # Fecha (formato dd/mm/yyyy)
+                fecha_str = entrada['fecha']
+                try:
+                    from datetime import datetime
+                    fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d')
+                    fecha_mostrar = fecha_obj.strftime('%d/%m/%Y')
+                except (ValueError, TypeError):
+                    fecha_mostrar = fecha_str
+
+                item_fecha = QTableWidgetItem(fecha_mostrar)
+                item_fecha.setTextAlignment(Qt.AlignCenter)
+                self.tabla_entradas.setItem(i, 0, item_fecha)
+
+                # Cantidad
+                item_cant = QTableWidgetItem(f"{entrada['cantidad']:.2f}")
+                item_cant.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.tabla_entradas.setItem(i, 1, item_cant)
+
+                # Proveedor
+                proveedor = entrada['proveedor'] or 'Sin proveedor'
+                self.tabla_entradas.setItem(i, 2, QTableWidgetItem(proveedor))
+
+                # Albarán
+                albaran = entrada['albaran'] or '-'
+                item_albaran = QTableWidgetItem(albaran)
+                item_albaran.setTextAlignment(Qt.AlignCenter)
+                self.tabla_entradas.setItem(i, 3, item_albaran)
+
+                # Coste unitario
+                coste = entrada['coste_unit']
+                if coste:
+                    item_coste = QTableWidgetItem(f"{coste:.2f} €")
+                else:
+                    item_coste = QTableWidgetItem('-')
+                item_coste.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.tabla_entradas.setItem(i, 4, item_coste)
+
+            # Reactivar ordenación (por defecto ordenará por fecha descendente)
+            self.tabla_entradas.setSortingEnabled(True)
+
+            # Ordenar por fecha descendente (más recientes primero)
+            self.tabla_entradas.sortItems(0, Qt.DescendingOrder)
+
+        except Exception as e:
+            logger.exception(f"Error al cargar últimas entradas: {e}")
+            QMessageBox.critical(self, "❌ Error", f"Error al cargar últimas entradas:\n{e}")

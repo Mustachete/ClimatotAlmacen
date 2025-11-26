@@ -24,12 +24,12 @@ def get_todos(filtro_texto: Optional[str] = None, limit: int = 1000) -> List[Dic
         sql = """
             SELECT id, nombre, telefono, contacto, email, notas
             FROM proveedores
-            WHERE nombre LIKE ?
-               OR telefono LIKE ?
-               OR contacto LIKE ?
-               OR email LIKE ?
+            WHERE nombre ILIKE %s
+               OR telefono ILIKE %s
+               OR contacto ILIKE %s
+               OR email ILIKE %s
             ORDER BY nombre
-            LIMIT ?
+            LIMIT %s
         """
         patron = f"%{filtro_texto}%"
         return fetch_all(sql, (patron, patron, patron, patron, limit))
@@ -38,7 +38,7 @@ def get_todos(filtro_texto: Optional[str] = None, limit: int = 1000) -> List[Dic
             SELECT id, nombre, telefono, contacto, email, notas
             FROM proveedores
             ORDER BY nombre
-            LIMIT ?
+            LIMIT %s
         """
         return fetch_all(sql, (limit,))
 
@@ -56,7 +56,7 @@ def get_by_id(proveedor_id: int) -> Optional[Dict[str, Any]]:
     sql = """
         SELECT id, nombre, telefono, contacto, email, notas
         FROM proveedores
-        WHERE id = ?
+        WHERE id = %s
     """
     return fetch_one(sql, (proveedor_id,))
 
@@ -74,7 +74,7 @@ def get_by_nombre(nombre: str) -> Optional[Dict[str, Any]]:
     sql = """
         SELECT id, nombre, telefono, contacto, email
         FROM proveedores
-        WHERE nombre = ?
+        WHERE nombre = %s
     """
     return fetch_one(sql, (nombre,))
 
@@ -101,7 +101,7 @@ def crear_proveedor(
     """
     sql = """
         INSERT INTO proveedores(nombre, telefono, contacto, email, notas)
-        VALUES(?, ?, ?, ?, ?)
+        VALUES(%s, %s, %s, %s, %s)
     """
     return execute_query(sql, (nombre, telefono, contacto, email, notas))
 
@@ -130,8 +130,8 @@ def actualizar_proveedor(
     """
     sql = """
         UPDATE proveedores
-        SET nombre=?, telefono=?, contacto=?, email=?, notas=?
-        WHERE id=?
+        SET nombre=%s, telefono=%s, contacto=%s, email=%s, notas=%s
+        WHERE id=%s
     """
     execute_query(sql, (nombre, telefono, contacto, email, notas, proveedor_id))
     return True
@@ -152,7 +152,7 @@ def eliminar_proveedor(proveedor_id: int) -> bool:
     Raises:
         IntegrityError: Si el proveedor tiene artículos asociados
     """
-    sql = "DELETE FROM proveedores WHERE id=?"
+    sql = "DELETE FROM proveedores WHERE id=%s"
     execute_query(sql, (proveedor_id,))
     return True
 
@@ -171,7 +171,7 @@ def verificar_articulos(proveedor_id: int) -> bool:
     Returns:
         True si tiene artículos, False si no tiene
     """
-    sql = "SELECT COUNT(*) as count FROM articulos WHERE proveedor_id = ?"
+    sql = "SELECT COUNT(*) as count FROM articulos WHERE proveedor_id = %s"
     result = fetch_one(sql, (proveedor_id,))
     return result['count'] > 0 if result else False
 
@@ -189,7 +189,7 @@ def get_articulos_proveedor(proveedor_id: int) -> List[Dict[str, Any]]:
     sql = """
         SELECT id, nombre, ref_proveedor, coste, activo
         FROM articulos
-        WHERE proveedor_id = ?
+        WHERE proveedor_id = %s
         ORDER BY nombre
     """
     return fetch_all(sql, (proveedor_id,))
@@ -211,7 +211,7 @@ def get_estadisticas_proveedor(proveedor_id: int) -> Dict[str, Any]:
             SUM(CASE WHEN activo = 1 THEN 1 ELSE 0 END) as articulos_activos,
             AVG(coste) as coste_promedio
         FROM articulos
-        WHERE proveedor_id = ?
+        WHERE proveedor_id = %s
     """
     result = fetch_one(sql, (proveedor_id,))
     return result if result else {}

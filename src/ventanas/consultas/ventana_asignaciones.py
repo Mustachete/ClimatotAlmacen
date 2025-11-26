@@ -5,16 +5,19 @@ Permite filtrar por fecha, operario, furgoneta y turno.
 """
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QDateEdit,
-    QComboBox, QGroupBox, QMessageBox, QRadioButton, QButtonGroup
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidgetItem, QHeaderView, QDateEdit,
+    QComboBox, QMessageBox, QRadioButton, QButtonGroup
 )
 from PySide6.QtCore import Qt, QDate
 from datetime import datetime, timedelta
 
-from src.core.db_utils import get_con
 from src.core.logger import logger
+from src.services import furgonetas_service, operarios_service
 from src.ui.estilos import ESTILO_VENTANA
+from src.ui.widgets_base import (
+    TituloVentana, DescripcionVentana, PanelFiltros, TablaEstandar,
+    Alerta, BotonPrimario, BotonSecundario
+)
 
 
 class VentanaAsignaciones(QWidget):
@@ -35,18 +38,16 @@ class VentanaAsignaciones(QWidget):
         layout.setContentsMargins(15, 15, 15, 15)
 
         # ========== TÍTULO ==========
-        titulo = QLabel("🚚 Historial de Asignaciones de Furgonetas")
-        titulo.setStyleSheet("font-size: 20px; font-weight: bold; margin-bottom: 10px;")
+        titulo = TituloVentana("🚚 Historial de Asignaciones de Furgonetas")
         titulo.setAlignment(Qt.AlignCenter)
         layout.addWidget(titulo)
 
-        desc = QLabel("Consulta el historial completo de asignaciones furgoneta-operario")
-        desc.setStyleSheet("color: #64748b; font-size: 12px; margin-bottom: 10px;")
+        desc = DescripcionVentana("Consulta el historial completo de asignaciones furgoneta-operario")
         desc.setAlignment(Qt.AlignCenter)
         layout.addWidget(desc)
 
         # ========== GRUPO: FILTROS ==========
-        grupo_filtros = QGroupBox("🔍 Filtros de Búsqueda")
+        grupo_filtros = PanelFiltros("🔍 Filtros de Búsqueda")
         filtros_layout = QVBoxLayout()
 
         # Fila 1: Fechas
@@ -124,17 +125,13 @@ class VentanaAsignaciones(QWidget):
         # ========== BOTONES DE ACCIÓN ==========
         botones_layout = QHBoxLayout()
 
-        self.btn_buscar = QPushButton("🔍 Buscar")
-        self.btn_buscar.setMinimumHeight(40)
-        self.btn_buscar.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.btn_buscar = BotonPrimario("🔍 Buscar")
         self.btn_buscar.clicked.connect(self.buscar_asignaciones)
 
-        self.btn_exportar = QPushButton("📄 Exportar CSV")
-        self.btn_exportar.setMinimumHeight(40)
+        self.btn_exportar = BotonSecundario("📄 Exportar CSV")
         self.btn_exportar.clicked.connect(self.exportar_csv)
 
-        self.btn_limpiar = QPushButton("🔄 Limpiar Filtros")
-        self.btn_limpiar.setMinimumHeight(40)
+        self.btn_limpiar = BotonSecundario("🔄 Limpiar Filtros")
         self.btn_limpiar.clicked.connect(self.limpiar_filtros)
 
         botones_layout.addWidget(self.btn_buscar, 2)
@@ -148,8 +145,7 @@ class VentanaAsignaciones(QWidget):
         lbl_resultados.setStyleSheet("font-weight: bold; margin-top: 10px;")
         layout.addWidget(lbl_resultados)
 
-        self.tabla = QTableWidget()
-        self.tabla.setColumnCount(6)
+        self.tabla = TablaEstandar(0, 6)
         self.tabla.setHorizontalHeaderLabels([
             "Fecha", "Turno", "Operario", "Rol", "Furgoneta", "Días"
         ])
@@ -163,20 +159,14 @@ class VentanaAsignaciones(QWidget):
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Días
 
         self.tabla.setMinimumHeight(300)
-        self.tabla.setAlternatingRowColors(True)
         layout.addWidget(self.tabla)
 
         # ========== ESTADÍSTICAS ==========
-        self.lbl_estadisticas = QLabel("")
-        self.lbl_estadisticas.setStyleSheet(
-            "background-color: #eff6ff; padding: 10px; border-radius: 5px; "
-            "color: #1e3a8a; font-weight: bold;"
-        )
+        self.lbl_estadisticas = Alerta("", tipo='info')
         layout.addWidget(self.lbl_estadisticas)
 
         # ========== BOTÓN VOLVER ==========
-        btn_volver = QPushButton("⬅️ Volver")
-        btn_volver.setMinimumHeight(40)
+        btn_volver = BotonSecundario("⬅️ Volver")
         btn_volver.clicked.connect(self.close)
         layout.addWidget(btn_volver)
 
@@ -189,40 +179,25 @@ class VentanaAsignaciones(QWidget):
     def cargar_combos(self):
         """Carga los combos de operario y furgoneta"""
         try:
-            con = get_con()
-            cur = con.cursor()
-
-            # Cargar operarios
-            cur.execute("""
-                SELECT id, nombre, rol_operario
-                FROM operarios
-                WHERE activo = 1
-                ORDER BY nombre
-            """)
-            operarios = cur.fetchall()
+            # Cargar operarios usando operarios_service
+            operarios = operarios_service.obtener_operarios()
 
             self.cmb_operario.clear()
             self.cmb_operario.addItem("(Todos los operarios)", None)
             for op in operarios:
-                emoji = "👷" if op[2] == "oficial" else "🔨"
-                texto = f"{emoji} {op[1]} ({op[2]})"
-                self.cmb_operario.addItem(texto, op[0])
+                emoji = "👷" if op['rol_operario'] == "oficial" else "🔨"
+                texto = f"{emoji} {op['nombre']} ({op['rol_operario']})"
+                self.cmb_operario.addItem(texto, op['id'])
 
-            # Cargar furgonetas
-            cur.execute("""
-                SELECT id, nombre
-                FROM almacenes
-                WHERE tipo = 'furgoneta'
-                ORDER BY nombre
-            """)
-            furgonetas = cur.fetchall()
+            # Cargar furgonetas usando furgonetas_service
+            furgonetas = furgonetas_service.list_furgonetas()
 
             self.cmb_furgoneta.clear()
             self.cmb_furgoneta.addItem("(Todas las furgonetas)", None)
             for furg in furgonetas:
-                self.cmb_furgoneta.addItem(f"🚚 {furg[1]}", furg[0])
-
-            con.close()
+                # furgonetas_service devuelve objetos con 'id' y 'numero', no 'nombre'
+                nombre = f"Furgoneta {furg.get('numero', furg['id'])}"
+                self.cmb_furgoneta.addItem(f"🚚 {nombre}", furg['id'])
 
         except Exception as e:
             logger.exception(f"Error al cargar combos: {e}")
@@ -245,49 +220,21 @@ class VentanaAsignaciones(QWidget):
             elif self.radio_completo.isChecked():
                 turno_filtro = 'completo'
 
-            con = get_con()
-            cur = con.cursor()
-
-            # Construir query con filtros
-            sql = """
-                SELECT
-                    af.fecha,
-                    af.turno,
-                    o.nombre as operario_nombre,
-                    o.rol_operario,
-                    a.nombre as furgoneta_nombre,
-                    o.id as operario_id
-                FROM asignaciones_furgoneta af
-                JOIN operarios o ON af.operario_id = o.id
-                JOIN almacenes a ON af.furgoneta_id = a.id
-                WHERE af.fecha BETWEEN ? AND ?
-            """
-            params = [fecha_desde, fecha_hasta]
-
-            if operario_id:
-                sql += " AND af.operario_id = ?"
-                params.append(operario_id)
-
-            if furgoneta_id:
-                sql += " AND af.furgoneta_id = ?"
-                params.append(furgoneta_id)
-
-            if turno_filtro:
-                sql += " AND af.turno = ?"
-                params.append(turno_filtro)
-
-            sql += " ORDER BY af.fecha DESC, af.turno, o.nombre"
-
-            cur.execute(sql, tuple(params))
-            resultados = cur.fetchall()
-            con.close()
+            # Usar furgonetas_service en lugar de SQL directo
+            resultados = furgonetas_service.obtener_asignaciones_filtradas(
+                fecha_desde=fecha_desde,
+                fecha_hasta=fecha_hasta,
+                operario_id=operario_id,
+                furgoneta_id=furgoneta_id,
+                turno=turno_filtro
+            )
 
             # Llenar tabla
             self.tabla.setRowCount(len(resultados))
 
             for i, row in enumerate(resultados):
                 # Fecha
-                fecha_obj = datetime.strptime(row[0], "%Y-%m-%d")
+                fecha_obj = datetime.strptime(row['fecha'], "%Y-%m-%d")
                 fecha_formateada = fecha_obj.strftime("%d/%m/%Y")
                 self.tabla.setItem(i, 0, QTableWidgetItem(fecha_formateada))
 
@@ -297,17 +244,17 @@ class VentanaAsignaciones(QWidget):
                     'tarde': '🌆 Tarde',
                     'completo': '🕐 Completo'
                 }
-                self.tabla.setItem(i, 1, QTableWidgetItem(turno_emoji.get(row[1], row[1])))
+                self.tabla.setItem(i, 1, QTableWidgetItem(turno_emoji.get(row['turno'], row['turno'])))
 
                 # Operario
-                self.tabla.setItem(i, 2, QTableWidgetItem(row[2]))
+                self.tabla.setItem(i, 2, QTableWidgetItem(row['operario_nombre']))
 
                 # Rol
-                rol_emoji = "👷" if row[3] == "oficial" else "🔨"
-                self.tabla.setItem(i, 3, QTableWidgetItem(f"{rol_emoji} {row[3]}"))
+                rol_emoji = "👷" if row['rol_operario'] == "oficial" else "🔨"
+                self.tabla.setItem(i, 3, QTableWidgetItem(f"{rol_emoji} {row['rol_operario']}"))
 
                 # Furgoneta
-                self.tabla.setItem(i, 4, QTableWidgetItem(row[4]))
+                self.tabla.setItem(i, 4, QTableWidgetItem(row['furgoneta_nombre']))
 
                 # Calcular días desde la asignación
                 dias_transcurridos = (datetime.now() - fecha_obj).days
@@ -323,12 +270,12 @@ class VentanaAsignaciones(QWidget):
             total = len(resultados)
             if total > 0:
                 # Contar operarios únicos
-                operarios_unicos = len(set(r[5] for r in resultados))
+                operarios_unicos = len(set(r['operario_id'] for r in resultados))
 
                 # Contar por turno
                 turnos_count = {}
                 for r in resultados:
-                    turno = r[1]
+                    turno = r['turno']
                     turnos_count[turno] = turnos_count.get(turno, 0) + 1
 
                 stats = f"📊 Total: {total} asignaciones | 👷 {operarios_unicos} operarios únicos"

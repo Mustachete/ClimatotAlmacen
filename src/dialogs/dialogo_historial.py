@@ -182,7 +182,7 @@ class DialogoHistorial(QDialog):
                 else:
                     hace = f"Hace {diff.days} días"
                 fecha_texto = f"{fecha_str}\n({hace})"
-            except:
+            except (ValueError, AttributeError, TypeError):
                 fecha_texto = item['fecha_hora']
 
             item_fecha = QTableWidgetItem(fecha_texto)
@@ -275,7 +275,7 @@ class DialogoHistorial(QDialog):
                     ultima = "Ayer"
                 else:
                     ultima = f"Hace {diff.days} días"
-            except:
+            except (ValueError, AttributeError, TypeError):
                 ultima = "---"
             item_ultima = QTableWidgetItem(ultima)
             item_ultima.setTextAlignment(Qt.AlignCenter)

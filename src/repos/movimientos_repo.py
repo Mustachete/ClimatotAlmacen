@@ -17,6 +17,9 @@ def get_todos(
     articulo_id: Optional[int] = None,
     almacen_id: Optional[int] = None,
     operario_id: Optional[int] = None,
+    articulo_texto: Optional[str] = None,
+    ot: Optional[str] = None,
+    responsable: Optional[str] = None,
     limit: int = 1000
 ) -> List[Dict[str, Any]]:
     """
@@ -29,6 +32,9 @@ def get_todos(
         articulo_id: ID del artículo
         almacen_id: ID del almacén (origen o destino)
         operario_id: ID del operario
+        articulo_texto: Texto para buscar en nombre, EAN o referencia del artículo
+        ot: Número de orden de trabajo
+        responsable: Nombre del responsable
         limit: Límite de resultados
 
     Returns:
@@ -38,28 +44,42 @@ def get_todos(
     params = []
 
     if fecha_desde:
-        condiciones.append("m.fecha >= ?")
+        condiciones.append("m.fecha >= %s")
         params.append(fecha_desde)
 
     if fecha_hasta:
-        condiciones.append("m.fecha <= ?")
+        condiciones.append("m.fecha <= %s")
         params.append(fecha_hasta)
 
     if tipo:
-        condiciones.append("m.tipo = ?")
+        condiciones.append("m.tipo = %s")
         params.append(tipo)
 
     if articulo_id:
-        condiciones.append("m.articulo_id = ?")
+        condiciones.append("m.articulo_id = %s")
         params.append(articulo_id)
 
     if almacen_id:
-        condiciones.append("(m.origen_id = ? OR m.destino_id = ?)")
+        condiciones.append("(m.origen_id = %s OR m.destino_id = %s)")
         params.extend([almacen_id, almacen_id])
 
     if operario_id:
-        condiciones.append("m.operario_id = ?")
+        condiciones.append("m.operario_id = %s")
         params.append(operario_id)
+
+    if articulo_texto:
+        # Buscar en nombre, EAN o referencia del artículo (case insensitive)
+        condiciones.append("(LOWER(a.nombre) LIKE LOWER(%s) OR LOWER(a.ean) LIKE LOWER(%s) OR LOWER(a.ref_proveedor) LIKE LOWER(%s))")
+        texto_busqueda = f"%{articulo_texto}%"
+        params.extend([texto_busqueda, texto_busqueda, texto_busqueda])
+
+    if ot:
+        condiciones.append("LOWER(m.ot) LIKE LOWER(%s)")
+        params.append(f"%{ot}%")
+
+    if responsable:
+        condiciones.append("LOWER(m.responsable) LIKE LOWER(%s)")
+        params.append(f"%{responsable}%")
 
     where_clause = " AND ".join(condiciones) if condiciones else "1=1"
 
@@ -90,7 +110,7 @@ def get_todos(
         LEFT JOIN operarios op ON m.operario_id = op.id
         WHERE {where_clause}
         ORDER BY m.fecha DESC, m.id DESC
-        LIMIT ?
+        LIMIT %s
     """
     params.append(limit)
 
@@ -131,7 +151,7 @@ def get_by_id(movimiento_id: int) -> Optional[Dict[str, Any]]:
         LEFT JOIN almacenes origen ON m.origen_id = origen.id
         LEFT JOIN almacenes destino ON m.destino_id = destino.id
         LEFT JOIN operarios op ON m.operario_id = op.id
-        WHERE m.id = ?
+        WHERE m.id = %s
     """
     return fetch_one(sql, (movimiento_id,))
 
@@ -139,6 +159,7 @@ def get_by_id(movimiento_id: int) -> Optional[Dict[str, Any]]:
 def get_movimientos_articulo(
     articulo_id: int,
     fecha_desde: Optional[str] = None,
+    tipo: Optional[str] = None,
     limit: int = 100
 ) -> List[Dict[str, Any]]:
     """
@@ -147,17 +168,22 @@ def get_movimientos_articulo(
     Args:
         articulo_id: ID del artículo
         fecha_desde: Fecha inicio opcional
+        tipo: Filtro por tipo de movimiento (ENTRADA, SALIDA, etc.)
         limit: Límite de resultados
 
     Returns:
         Lista de movimientos del artículo
     """
-    condiciones = ["m.articulo_id = ?"]
+    condiciones = ["m.articulo_id = %s"]
     params = [articulo_id]
 
     if fecha_desde:
-        condiciones.append("m.fecha >= ?")
+        condiciones.append("m.fecha >= %s")
         params.append(fecha_desde)
+
+    if tipo:
+        condiciones.append("m.tipo = %s")
+        params.append(tipo)
 
     where_clause = " AND ".join(condiciones)
 
@@ -169,6 +195,8 @@ def get_movimientos_articulo(
             m.cantidad,
             m.coste_unit,
             m.motivo,
+            m.ot,
+            m.responsable,
             origen.nombre AS origen_nombre,
             destino.nombre AS destino_nombre,
             op.nombre AS operario_nombre
@@ -178,11 +206,65 @@ def get_movimientos_articulo(
         LEFT JOIN operarios op ON m.operario_id = op.id
         WHERE {where_clause}
         ORDER BY m.fecha DESC, m.id DESC
-        LIMIT ?
+        LIMIT %s
     """
     params.append(limit)
 
     return fetch_all(sql, params)
+
+
+def get_estadisticas_articulo(articulo_id: int) -> Dict[str, Any]:
+    """
+    Obtiene estadísticas de movimientos de un artículo.
+
+    Args:
+        articulo_id: ID del artículo
+
+    Returns:
+        Diccionario con estadísticas (totales, 30 días, top OTs)
+    """
+    from datetime import date, timedelta
+
+    # Estadísticas totales
+    sql_totales = """
+        SELECT
+            SUM(CASE WHEN tipo = 'ENTRADA' THEN cantidad ELSE 0 END) as entradas,
+            SUM(CASE WHEN tipo IN ('IMPUTACION', 'PERDIDA', 'DEVOLUCION') THEN cantidad ELSE 0 END) as salidas,
+            SUM(CASE WHEN tipo = 'TRASPASO' THEN cantidad ELSE 0 END) as traspasos,
+            SUM(CASE WHEN tipo = 'IMPUTACION' THEN cantidad ELSE 0 END) as imputaciones,
+            SUM(CASE WHEN tipo = 'PERDIDA' THEN cantidad ELSE 0 END) as perdidas
+        FROM movimientos
+        WHERE articulo_id = %s
+    """
+    totales = fetch_one(sql_totales, (articulo_id,))
+
+    # Estadísticas últimos 30 días
+    fecha_30d = (date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
+    sql_30d = """
+        SELECT
+            SUM(CASE WHEN tipo = 'ENTRADA' THEN cantidad ELSE 0 END) as entradas,
+            SUM(CASE WHEN tipo IN ('IMPUTACION', 'PERDIDA', 'DEVOLUCION') THEN cantidad ELSE 0 END) as consumo
+        FROM movimientos
+        WHERE articulo_id = %s AND fecha >= %s
+    """
+    stats_30d = fetch_one(sql_30d, (articulo_id, fecha_30d))
+
+    # Top OTs
+    sql_ots = """
+        SELECT ot, SUM(cantidad) as total
+        FROM movimientos
+        WHERE articulo_id = %s AND tipo = 'IMPUTACION' AND ot IS NOT NULL
+        GROUP BY ot
+        ORDER BY total DESC
+        LIMIT 5
+    """
+    top_ots = fetch_all(sql_ots, (articulo_id,))
+
+    return {
+        'totales': totales or {},
+        'stats_30d': stats_30d or {},
+        'top_ots': top_ots
+    }
 
 
 def get_stock_por_almacen(articulo_id: int) -> List[Dict[str, Any]]:
@@ -202,9 +284,9 @@ def get_stock_por_almacen(articulo_id: int) -> List[Dict[str, Any]]:
             COALESCE(SUM(v.delta), 0) AS stock
         FROM vw_stock v
         JOIN almacenes a ON v.almacen_id = a.id
-        WHERE v.articulo_id = ?
+        WHERE v.articulo_id = %s
         GROUP BY v.almacen_id, a.nombre
-        HAVING stock > 0
+        HAVING COALESCE(SUM(v.delta), 0) > 0
         ORDER BY a.nombre
     """
     return fetch_all(sql, (articulo_id,))
@@ -240,7 +322,7 @@ def crear_entrada(
     """
     sql = """
         INSERT INTO movimientos(fecha, tipo, destino_id, articulo_id, cantidad, coste_unit, albaran, responsable)
-        VALUES(?, 'ENTRADA', ?, ?, ?, ?, ?, ?)
+        VALUES(%s, 'ENTRADA', %s, %s, %s, %s, %s, %s)
     """
     return execute_query(sql, (fecha, destino_id, articulo_id, cantidad, coste_unit, albaran, responsable))
 
@@ -273,7 +355,7 @@ def crear_traspaso(
     """
     sql = """
         INSERT INTO movimientos(fecha, tipo, origen_id, destino_id, articulo_id, cantidad, operario_id, responsable, motivo)
-        VALUES(?, 'TRASPASO', ?, ?, ?, ?, ?, ?, ?)
+        VALUES(%s, 'TRASPASO', %s, %s, %s, %s, %s, %s, %s)
     """
     return execute_query(sql, (fecha, origen_id, destino_id, articulo_id, cantidad, operario_id, responsable, motivo))
 
@@ -304,7 +386,7 @@ def crear_imputacion(
     """
     sql = """
         INSERT INTO movimientos(fecha, tipo, origen_id, articulo_id, cantidad, operario_id, ot, motivo)
-        VALUES(?, 'IMPUTACION', ?, ?, ?, ?, ?, ?)
+        VALUES(%s, 'IMPUTACION', %s, %s, %s, %s, %s, %s)
     """
     return execute_query(sql, (fecha, origen_id, articulo_id, cantidad, operario_id, ot, motivo))
 
@@ -333,7 +415,7 @@ def crear_perdida(
     """
     sql = """
         INSERT INTO movimientos(fecha, tipo, origen_id, articulo_id, cantidad, motivo, responsable)
-        VALUES(?, 'PERDIDA', ?, ?, ?, ?, ?)
+        VALUES(%s, 'PERDIDA', %s, %s, %s, %s, %s)
     """
     return execute_query(sql, (fecha, origen_id, articulo_id, cantidad, motivo, responsable))
 
@@ -362,7 +444,7 @@ def crear_devolucion(
     """
     sql = """
         INSERT INTO movimientos(fecha, tipo, origen_id, articulo_id, cantidad, motivo, responsable)
-        VALUES(?, 'DEVOLUCION', ?, ?, ?, ?, ?)
+        VALUES(%s, 'DEVOLUCION', %s, %s, %s, %s, %s)
     """
     return execute_query(sql, (fecha, origen_id, articulo_id, cantidad, motivo, responsable))
 
@@ -389,7 +471,7 @@ def crear_movimientos_batch(movimientos: List[Dict[str, Any]]) -> List[int]:
             if tipo == 'ENTRADA':
                 sql = """
                     INSERT INTO movimientos(fecha, tipo, destino_id, articulo_id, cantidad, coste_unit, albaran, responsable)
-                    VALUES(?, 'ENTRADA', ?, ?, ?, ?, ?, ?)
+                    VALUES(%s, 'ENTRADA', %s, %s, %s, %s, %s, %s)
                 """
                 cur.execute(sql, (
                     mov['fecha'],
@@ -404,7 +486,7 @@ def crear_movimientos_batch(movimientos: List[Dict[str, Any]]) -> List[int]:
             elif tipo == 'TRASPASO':
                 sql = """
                     INSERT INTO movimientos(fecha, tipo, origen_id, destino_id, articulo_id, cantidad, operario_id, responsable, motivo)
-                    VALUES(?, 'TRASPASO', ?, ?, ?, ?, ?, ?, ?)
+                    VALUES(%s, 'TRASPASO', %s, %s, %s, %s, %s, %s, %s)
                 """
                 cur.execute(sql, (
                     mov['fecha'],
@@ -420,7 +502,7 @@ def crear_movimientos_batch(movimientos: List[Dict[str, Any]]) -> List[int]:
             elif tipo == 'IMPUTACION':
                 sql = """
                     INSERT INTO movimientos(fecha, tipo, origen_id, articulo_id, cantidad, operario_id, ot, motivo)
-                    VALUES(?, 'IMPUTACION', ?, ?, ?, ?, ?, ?)
+                    VALUES(%s, 'IMPUTACION', %s, %s, %s, %s, %s, %s)
                 """
                 cur.execute(sql, (
                     mov['fecha'],
@@ -435,7 +517,7 @@ def crear_movimientos_batch(movimientos: List[Dict[str, Any]]) -> List[int]:
             elif tipo == 'PERDIDA':
                 sql = """
                     INSERT INTO movimientos(fecha, tipo, origen_id, articulo_id, cantidad, motivo, responsable)
-                    VALUES(?, 'PERDIDA', ?, ?, ?, ?, ?)
+                    VALUES(%s, 'PERDIDA', %s, %s, %s, %s, %s)
                 """
                 cur.execute(sql, (
                     mov['fecha'],
@@ -449,7 +531,7 @@ def crear_movimientos_batch(movimientos: List[Dict[str, Any]]) -> List[int]:
             elif tipo == 'DEVOLUCION':
                 sql = """
                     INSERT INTO movimientos(fecha, tipo, origen_id, articulo_id, cantidad, motivo, responsable)
-                    VALUES(?, 'DEVOLUCION', ?, ?, ?, ?, ?)
+                    VALUES(%s, 'DEVOLUCION', %s, %s, %s, %s, %s)
                 """
                 cur.execute(sql, (
                     mov['fecha'],
@@ -486,7 +568,7 @@ def get_almacen_by_nombre(nombre: str) -> Optional[Dict[str, Any]]:
     Returns:
         Diccionario con id y nombre o None
     """
-    sql = "SELECT id, nombre, tipo FROM almacenes WHERE nombre = ?"
+    sql = "SELECT id, nombre, tipo FROM almacenes WHERE nombre = %s"
     return fetch_one(sql, (nombre,))
 
 
@@ -510,8 +592,8 @@ def get_furgoneta_asignada(operario_id: int, fecha: str) -> Optional[Dict[str, A
                af.turno
         FROM asignaciones_furgoneta af
         JOIN almacenes a ON af.furgoneta_id = a.id
-        WHERE af.operario_id = ?
-          AND af.fecha = ?
+        WHERE af.operario_id = %s
+          AND af.fecha = %s
         ORDER BY
             CASE af.turno
                 WHEN 'completo' THEN 1

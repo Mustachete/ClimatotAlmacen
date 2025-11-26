@@ -1,15 +1,21 @@
 # ventana_stock.py - Consulta de Stock
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
-    QTableWidgetItem, QLineEdit, QLabel, QMessageBox, QComboBox,
-    QHeaderView, QCheckBox
+    QWidget, QVBoxLayout, QHBoxLayout, QTableWidgetItem, QLineEdit,
+    QMessageBox, QComboBox, QHeaderView, QCheckBox, QLabel
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from pathlib import Path
-import sqlite3
 from src.ui.estilos import ESTILO_VENTANA
-from src.core.db_utils import get_con
+from src.ui.widgets_base import (
+    TituloVentana, DescripcionVentana, TablaEstandar, Alerta,
+    BotonPrimario, BotonSecundario
+)
+from src.ui.combo_loaders import ComboLoader
+from src.services import familias_service, almacenes_service, stock_service
+
+# Directorio base del proyecto
+BASE = Path(__file__).parent.parent.parent
 
 # ========================================
 # VENTANA DE CONSULTA DE STOCK
@@ -27,22 +33,16 @@ class VentanaStock(QWidget):
         layout.setContentsMargins(15, 15, 15, 15)
         
         # ========== TÍTULO ==========
-        titulo = QLabel("📊 Consulta de Stock de Almacén")
-        titulo.setStyleSheet("font-size: 20px; font-weight: bold; margin-bottom: 5px;")
+        titulo = TituloVentana("📊 Consulta de Stock de Almacén")
         titulo.setAlignment(Qt.AlignCenter)
         layout.addWidget(titulo)
-        
-        desc = QLabel("Visualiza el stock actual de todos los artículos por almacén y furgoneta")
-        desc.setStyleSheet("color: #64748b; font-size: 12px; margin-bottom: 10px;")
+
+        desc = DescripcionVentana("Visualiza el stock actual de todos los artículos por almacén y furgoneta")
         desc.setAlignment(Qt.AlignCenter)
         layout.addWidget(desc)
 
         # ========== PANEL DE ALERTAS ==========
-        self.panel_alertas = QLabel("")
-        self.panel_alertas.setStyleSheet(
-            "background-color: #fef2f2; border: 2px solid #dc2626; "
-            "border-radius: 5px; padding: 10px; color: #dc2626; font-weight: bold;"
-        )
+        self.panel_alertas = Alerta("", tipo='error')
         self.panel_alertas.setAlignment(Qt.AlignCenter)
         self.panel_alertas.setVisible(False)  # Oculto por defecto
         layout.addWidget(self.panel_alertas)
@@ -72,7 +72,7 @@ class VentanaStock(QWidget):
         
         # Checkbox solo con stock
         self.chk_con_stock = QCheckBox("Solo con stock")
-        self.chk_con_stock.setChecked(True)
+        self.chk_con_stock.setChecked(False)  # Por defecto mostrar todos
         self.chk_con_stock.stateChanged.connect(self.aplicar_filtros)
         
         # Checkbox alertas
@@ -92,30 +92,27 @@ class VentanaStock(QWidget):
         
         # ========== BOTONES ==========
         botones_layout = QHBoxLayout()
-        
-        self.btn_exportar = QPushButton("📊 Exportar a Excel")
+
+        self.btn_exportar = BotonPrimario("📊 Exportar a Excel")
         self.btn_exportar.clicked.connect(self.exportar_excel)
-        
-        self.btn_actualizar = QPushButton("🔄 Actualizar")
+
+        self.btn_actualizar = BotonSecundario("🔄 Actualizar")
         self.btn_actualizar.clicked.connect(self.aplicar_filtros)
-        
+
         botones_layout.addWidget(self.btn_exportar)
         botones_layout.addWidget(self.btn_actualizar)
         botones_layout.addStretch()
-        
+
         layout.addLayout(botones_layout)
         
         # ========== TABLA ==========
-        self.tabla = QTableWidget()
-        self.tabla.setColumnCount(8)
+        self.tabla = TablaEstandar(0, 8)
         self.tabla.setHorizontalHeaderLabels([
             "ID", "Artículo", "EAN", "Familia", "Almacén", "Stock", "Mín", "Estado"
         ])
         self.tabla.setColumnHidden(0, True)
-        self.tabla.setSelectionBehavior(QTableWidget.SelectRows)
-        self.tabla.setSelectionMode(QTableWidget.SingleSelection)
-        self.tabla.setEditTriggers(QTableWidget.NoEditTriggers)
-        
+        self.tabla.setEditTriggers(TablaEstandar.NoEditTriggers)
+
         # Ajustar columnas
         header = self.tabla.horizontalHeader()
         header.setSectionResizeMode(1, QHeaderView.Stretch)  # Artículo
@@ -125,7 +122,7 @@ class VentanaStock(QWidget):
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Stock
         header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # Mín
         header.setSectionResizeMode(7, QHeaderView.ResizeToContents)  # Estado
-        
+
         layout.addWidget(self.tabla)
         
         # ========== RESUMEN ==========
@@ -134,8 +131,7 @@ class VentanaStock(QWidget):
         layout.addWidget(self.lbl_resumen)
         
         # ========== BOTÓN VOLVER ==========
-        btn_volver = QPushButton("⬅️ Volver")
-        btn_volver.setMinimumHeight(40)
+        btn_volver = BotonSecundario("⬅️ Volver")
         btn_volver.clicked.connect(self.close)
         layout.addWidget(btn_volver)
         
@@ -145,122 +141,67 @@ class VentanaStock(QWidget):
     def cargar_familias(self):
         """Carga las familias en el combo"""
         try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("SELECT nombre FROM familias ORDER BY nombre")
-            rows = cur.fetchall()
-            con.close()
-            
+            familias = familias_service.obtener_familias()
+
             self.cmb_familia.addItem("Todas", None)
-            for row in rows:
-                self.cmb_familia.addItem(row[0], row[0])
-        except Exception:
-            pass
+            for familia in familias:
+                self.cmb_familia.addItem(familia['nombre'], familia['nombre'])
+        except Exception as e:
+            # Si falla la carga de familias, continuamos sin filtro de familia
+            from src.core.logger import logger
+            logger.warning(f"No se pudieron cargar familias en ventana_stock: {e}")
     
     def cargar_almacenes(self):
-        """Carga los almacenes en el combo"""
-        try:
-            con = get_con()
-            cur = con.cursor()
-            cur.execute("SELECT nombre FROM almacenes ORDER BY nombre")
-            rows = cur.fetchall()
-            con.close()
-            
-            self.cmb_almacen.addItem("Todos", None)
-            for row in rows:
-                self.cmb_almacen.addItem(row[0], row[0])
-        except Exception:
-            pass
+        """Carga los almacenes en el combo usando ComboLoader"""
+        ComboLoader.cargar_almacenes(
+            self.cmb_almacen,
+            almacenes_service.obtener_almacenes,
+            opcion_vacia=True,
+            texto_vacio="Todos"
+        )
     
     def aplicar_filtros(self):
         """Aplica los filtros y carga los datos"""
-        texto_buscar = self.txt_buscar.text().strip()
+        texto_buscar = self.txt_buscar.text().strip() or None
         familia = self.cmb_familia.currentData()
         almacen = self.cmb_almacen.currentData()
         solo_con_stock = self.chk_con_stock.isChecked()
         solo_alertas = self.chk_alertas.isChecked()
-        
+
         try:
-            con = get_con()
-            cur = con.cursor()
-            
-            query = """
-                SELECT 
-                    a.id,
-                    a.nombre,
-                    a.ean,
-                    f.nombre as familia,
-                    alm.nombre as almacen,
-                    COALESCE(SUM(v.delta), 0) as stock,
-                    a.min_alerta,
-                    a.u_medida
-                FROM articulos a
-                LEFT JOIN familias f ON a.familia_id = f.id
-                LEFT JOIN vw_stock v ON a.id = v.articulo_id
-                LEFT JOIN almacenes alm ON v.almacen_id = alm.id
-                WHERE a.activo = 1
-            """
-            
-            params = []
-            
-            # Filtro de búsqueda
-            if texto_buscar:
-                query += " AND (a.nombre LIKE ? OR a.ean LIKE ? OR a.ref_proveedor LIKE ?)"
-                params.extend([f"%{texto_buscar}%"] * 3)
-            
-            # Filtro de familia
-            if familia:
-                query += " AND f.nombre = ?"
-                params.append(familia)
-            
-            # Filtro de almacén
-            if almacen:
-                query += " AND alm.nombre = ?"
-                params.append(almacen)
-            
-            query += " GROUP BY a.id, a.nombre, a.ean, f.nombre, alm.nombre, a.min_alerta, a.u_medida"
-            
-            # Filtro de solo con stock
-            if solo_con_stock:
-                query += " HAVING stock > 0"
-            
-            # Filtro de solo alertas
-            if solo_alertas:
-                if solo_con_stock:
-                    query += " AND stock < a.min_alerta"
-                else:
-                    query += " HAVING stock < a.min_alerta"
-            
-            query += " ORDER BY a.nombre, alm.nombre"
-            
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            con.close()
-            
+            # Usar stock_service en lugar de SQL directo
+            rows = stock_service.obtener_stock_completo(
+                filtro_texto=texto_buscar,
+                familia=familia,
+                almacen=almacen,
+                solo_con_stock=solo_con_stock,
+                solo_alertas=solo_alertas
+            )
+
             self.tabla.setRowCount(len(rows))
-            
+
             total_articulos = 0
             alertas = 0
-            
+
             for i, row in enumerate(rows):
                 # ID
-                self.tabla.setItem(i, 0, QTableWidgetItem(str(row[0])))
+                self.tabla.setItem(i, 0, QTableWidgetItem(str(row['id'])))
                 # Artículo
-                self.tabla.setItem(i, 1, QTableWidgetItem(row[1]))
+                self.tabla.setItem(i, 1, QTableWidgetItem(row['nombre']))
                 # EAN
-                self.tabla.setItem(i, 2, QTableWidgetItem(row[2] or "-"))
+                self.tabla.setItem(i, 2, QTableWidgetItem(row['ean'] or "-"))
                 # Familia
-                self.tabla.setItem(i, 3, QTableWidgetItem(row[3] or "-"))
+                self.tabla.setItem(i, 3, QTableWidgetItem(row['familia'] or "-"))
                 # Almacén
-                self.tabla.setItem(i, 4, QTableWidgetItem(row[4] or "-"))
+                self.tabla.setItem(i, 4, QTableWidgetItem(row['almacen'] or "-"))
                 # Stock
-                stock = row[5]
-                u_medida = row[7] or "unidad"
+                stock = row['stock']
+                u_medida = row['u_medida'] or "unidad"
                 item_stock = QTableWidgetItem(f"{stock:.2f} {u_medida}")
                 item_stock.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.tabla.setItem(i, 5, item_stock)
                 # Mínimo
-                min_alerta = row[6]
+                min_alerta = row['min_alerta']
                 item_min = QTableWidgetItem(f"{min_alerta:.2f}")
                 item_min.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.tabla.setItem(i, 6, item_min)
@@ -275,14 +216,14 @@ class VentanaStock(QWidget):
                 else:
                     estado = "✅ OK"
                     color = QColor("#d1fae5")
-                
+
                 item_estado = QTableWidgetItem(estado)
                 item_estado.setBackground(color)
                 item_estado.setTextAlignment(Qt.AlignCenter)
                 self.tabla.setItem(i, 7, item_estado)
-                
+
                 total_articulos += 1
-            
+
             # Actualizar resumen
             self.lbl_resumen.setText(
                 f"📦 Total registros: {total_articulos} | "
@@ -298,7 +239,7 @@ class VentanaStock(QWidget):
                 self.panel_alertas.setVisible(True)
             else:
                 self.panel_alertas.setVisible(False)
-            
+
         except Exception as e:
             QMessageBox.critical(self, "❌ Error", f"Error al cargar stock:\n{e}")
     

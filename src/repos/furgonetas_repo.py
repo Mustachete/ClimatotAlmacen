@@ -4,156 +4,150 @@ from typing import Optional, List, Dict, Any
 from datetime import date
 from pathlib import Path
 
-from src.core.db_utils import get_connection, execute_query, fetch_all, fetch_one, DB_PATH
-
-
-# -----------------------------
-# SCHEMA / MIGRATIONS LIGERAS
-# -----------------------------
-
-SCHEMA_SQL = r"""
-CREATE TABLE IF NOT EXISTS furgonetas (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    numero      INTEGER UNIQUE,
-    matricula   TEXT NOT NULL UNIQUE,
-    marca       TEXT,
-    modelo      TEXT,
-    anio        INTEGER,
-    activa      INTEGER NOT NULL DEFAULT 1,
-    notas       TEXT
-);
-
-CREATE TABLE IF NOT EXISTS furgonetas_asignaciones (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    furgoneta_id INTEGER NOT NULL,
-    operario     TEXT NOT NULL,          -- guardamos nombre/alias (evita dependencia dura si aún no tenéis tabla operarios consolidada)
-    desde        TEXT NOT NULL,          -- ISO yyyy-mm-dd
-    hasta        TEXT,                   -- NULL = asignación actual
-    notas        TEXT,
-    FOREIGN KEY (furgoneta_id) REFERENCES furgonetas(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_furgonetas_asignaciones_furgoneta ON furgonetas_asignaciones(furgoneta_id);
-CREATE INDEX IF NOT EXISTS idx_furgonetas_asignaciones_actual ON furgonetas_asignaciones(furgoneta_id, hasta);
-
--- Vista de estado actual por furgoneta (una fila por furgoneta)
-CREATE VIEW IF NOT EXISTS vw_furgonetas_estado_actual AS
-SELECT f.id AS furgoneta_id,
-       f.matricula,
-       f.marca,
-       f.modelo,
-       f.anio,
-       f.activa,
-       (SELECT a.operario
-          FROM furgonetas_asignaciones a
-         WHERE a.furgoneta_id = f.id AND a.hasta IS NULL
-         ORDER BY a.desde DESC
-         LIMIT 1) AS operario_actual,
-       (SELECT a.desde
-          FROM furgonetas_asignaciones a
-         WHERE a.furgoneta_id = f.id AND a.hasta IS NULL
-         ORDER BY a.desde DESC
-         LIMIT 1) AS desde
-  FROM furgonetas f;
-"""
-
-def ensure_schema() -> None:
-    """Crea tablas y vista si no existen."""
-    with get_connection() as conn:
-        conn.executescript(SCHEMA_SQL)
-
-        # Migración: añadir columna 'numero' si no existe
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(furgonetas)")
-        columns = [col[1] for col in cursor.fetchall()]
-
-        if 'numero' not in columns:
-            # SQLite no permite añadir columna UNIQUE con ALTER TABLE si hay datos
-            # Por eso añadimos sin restricción UNIQUE
-            conn.execute("ALTER TABLE furgonetas ADD COLUMN numero INTEGER")
-            conn.commit()
-            # Nota: La restricción UNIQUE se aplicará en nuevas inserciones mediante la lógica de la aplicación
+from src.core.db_utils import execute_query, fetch_all, fetch_one, get_con, release_connection
 
 
 # -----------------------------
 # REPOS CRUD FURGONETAS
 # -----------------------------
+# Nota: Las tablas furgonetas y furgonetas_asignaciones deben existir en PostgreSQL
+
 
 def list_furgonetas(include_inactive: bool = True) -> List[Dict[str, Any]]:
-    """
-    Lista furgonetas desde la tabla almacenes (tipo='furgoneta').
-    IMPORTANTE: No usa la tabla 'furgonetas' antigua.
-    """
-    sql = """
-        SELECT id, nombre as matricula, NULL as marca, NULL as modelo,
-               NULL as anio, 1 as activa, NULL as notas, NULL as numero
-        FROM almacenes
-        WHERE tipo = 'furgoneta'
-    """
+    """Lista furgonetas desde la tabla furgonetas."""
+    sql = "SELECT * FROM furgonetas"
     if not include_inactive:
-        sql += " AND activa = 1"
-    sql += " ORDER BY nombre"
+        sql += " WHERE activa = 1"
+    sql += " ORDER BY numero, matricula"
     return fetch_all(sql)
 
 
 def get_furgoneta(fid: int) -> Optional[Dict[str, Any]]:
-    return fetch_one("SELECT * FROM furgonetas WHERE id = ?", (fid,))
+    """Obtiene una furgoneta por ID."""
+    return fetch_one("SELECT * FROM furgonetas WHERE id = %s", (fid,))
 
 
 def create_furgoneta(matricula: str, marca: str = None, modelo: str = None, anio: int = None, notas: str = None, numero: int = None) -> int:
-    with get_connection() as conn:
-        cur = conn.execute(
-            "INSERT INTO furgonetas(numero, matricula, marca, modelo, anio, notas) VALUES(?,?,?,?,?,?)",
+    """Crea una nueva furgoneta y su almacén correspondiente."""
+    conn = get_con()
+    cur = conn.cursor()
+
+    try:
+        # Crear furgoneta en tabla furgonetas
+        cur.execute(
+            "INSERT INTO furgonetas(numero, matricula, marca, modelo, anio, notas) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id",
             (numero, matricula.strip().upper(), marca, modelo, anio, notas)
         )
+        furgoneta_id = cur.fetchone()[0]
+
+        # Crear almacén correspondiente
+        cur.execute(
+            "INSERT INTO almacenes(nombre, tipo) VALUES(%s, 'furgoneta')",
+            (matricula.strip().upper(),)
+        )
+
         conn.commit()
-        return cur.lastrowid
+        return furgoneta_id
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        release_connection(conn)
 
 
 def update_furgoneta(fid: int, matricula: str, marca: str = None, modelo: str = None, anio: int = None, activa: int = 1, notas: str = None, numero: int = None) -> None:
-    execute_query(
-        """
-        UPDATE furgonetas SET numero=?1, matricula=?2, marca=?3, modelo=?4, anio=?5, activa=?6, notas=?7
-        WHERE id = ?8
-        """,
-        (numero, matricula.strip().upper(), marca, modelo, anio, int(bool(activa)), notas, fid)
-    )
+    """Actualiza una furgoneta y su almacén correspondiente."""
+    conn = get_con()
+    cur = conn.cursor()
+
+    try:
+        # Obtener matrícula anterior
+        cur.execute("SELECT matricula FROM furgonetas WHERE id = %s", (fid,))
+        row = cur.fetchone()
+        matricula_anterior = row[0] if row else None
+
+        # Actualizar furgoneta
+        cur.execute(
+            "UPDATE furgonetas SET numero=%s, matricula=%s, marca=%s, modelo=%s, anio=%s, activa=%s, notas=%s WHERE id = %s",
+            (numero, matricula.strip().upper(), marca, modelo, anio, int(bool(activa)), notas, fid)
+        )
+
+        # Actualizar almacén correspondiente
+        if matricula_anterior:
+            cur.execute(
+                "UPDATE almacenes SET nombre=%s WHERE nombre=%s AND tipo='furgoneta'",
+                (matricula.strip().upper(), matricula_anterior)
+            )
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        release_connection(conn)
 
 
 def delete_furgoneta(fid: int) -> None:
-    execute_query("DELETE FROM furgonetas WHERE id = ?", (fid,))
+    """Elimina una furgoneta y su almacén correspondiente."""
+    conn = get_con()
+    cur = conn.cursor()
 
+    try:
+        # Obtener matrícula
+        cur.execute("SELECT matricula FROM furgonetas WHERE id = %s", (fid,))
+        row = cur.fetchone()
+        matricula = row[0] if row else None
 
-# -----------------------------
-# REPOS ASIGNACIONES
-# -----------------------------
+        # Eliminar furgoneta
+        cur.execute("DELETE FROM furgonetas WHERE id = %s", (fid,))
+
+        # Eliminar almacén correspondiente
+        if matricula:
+            cur.execute("DELETE FROM almacenes WHERE nombre=%s AND tipo='furgoneta'", (matricula,))
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        release_connection(conn)
+
 
 def list_asignaciones(fid: int) -> List[Dict[str, Any]]:
     return fetch_all(
-        "SELECT * FROM furgonetas_asignaciones WHERE furgoneta_id = ? ORDER BY desde DESC, id DESC",
+        "SELECT * FROM furgonetas_asignaciones WHERE furgoneta_id = %s ORDER BY desde DESC, id DESC",
         (fid,)
     )
 
 
 def asignacion_actual(fid: int) -> Optional[Dict[str, Any]]:
     return fetch_one(
-        "SELECT * FROM furgonetas_asignaciones WHERE furgoneta_id = ? AND hasta IS NULL ORDER BY desde DESC LIMIT 1",
+        "SELECT * FROM furgonetas_asignaciones WHERE furgoneta_id = %s AND hasta IS NULL ORDER BY desde DESC LIMIT 1",
         (fid,)
     )
 
 
 def crear_asignacion(fid: int, operario: str, desde_iso: str, notas: str | None = None) -> int:
-    with get_connection() as conn:
-        cur = conn.execute(
-            "INSERT INTO furgonetas_asignaciones(furgoneta_id, operario, desde, notas) VALUES(?,?,?,?)",
+    conn = get_con()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(
+            "INSERT INTO furgonetas_asignaciones(furgoneta_id, operario, desde, notas) VALUES(%s,%s,%s,%s) RETURNING id",
             (fid, operario.strip(), desde_iso, notas)
         )
+        asignacion_id = cur.fetchone()[0]
         conn.commit()
-        return cur.lastrowid
+        return asignacion_id
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        release_connection(conn)
 
 
 def cerrar_asignacion(aid: int, hasta_iso: str) -> None:
-    execute_query("UPDATE furgonetas_asignaciones SET hasta = ? WHERE id = ?", (hasta_iso, aid))
+    execute_query("UPDATE furgonetas_asignaciones SET hasta = %s WHERE id = %s", (hasta_iso, aid))
 
 
 def estado_actual() -> List[Dict[str, Any]]:
